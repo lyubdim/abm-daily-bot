@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "abm-daily-bot"
+version = "0.1.0"
+description = "Telegram daily-status bot integrated with Odoo for ABM Club"
+requires-python = ">=3.12"
+dependencies = [
+  "aiogram>=3.25",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.34",
+  "httpx>=0.28",
+  "pydantic-settings>=2.7",
+  "sqlalchemy[asyncio]>=2.0",
+  "asyncpg>=0.30",
+  "alembic>=1.14",
+  "apscheduler>=3.11",
+  "tenacity>=9.0",
+  "openai>=1.99",
+]
+
+[project.scripts]
+abm-odoo-discover = "abm_daily_bot.cli.odoo_discovery:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.25",
+  "ruff>=0.9",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
