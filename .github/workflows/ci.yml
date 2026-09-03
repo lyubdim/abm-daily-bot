@@ -23,4 +23,6 @@ jobs:
         run: ruff check .
       - name: Test
         run: pytest -q
+      - name: Build production image
+        run: docker build -t abm-daily-bot:ci .
 

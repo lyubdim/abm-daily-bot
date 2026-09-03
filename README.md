@@ -38,6 +38,7 @@ Telegram-бот для ежедневных статусов команды по
 - [Practice Report Outline](docs/practice_report_outline.md)
 - [GitHub Setup](docs/github_setup.md)
 - [Development Log](docs/development_log.md)
+- [Production Deployment](docs/deployment.md)
 
 ## Безопасность
 
@@ -72,6 +73,16 @@ abm-bot
 ```bash
 TELEGRAM_BOT_TOKEN=<token> docker compose up --build bot
 ```
+
+Для постоянной работы на сервере используется отдельная production-конфигурация.
+Она не публикует PostgreSQL в интернет и хранит секреты вне Git:
+
+```bash
+docker compose --env-file deploy/production.env \
+  -f deploy/compose.production.yml up -d --build
+```
+
+Полная инструкция: [docs/deployment.md](docs/deployment.md).
 
 Проверка доступа к Odoo в режиме чтения:
 

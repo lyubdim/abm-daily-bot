@@ -1,0 +1,58 @@
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      TIMEZONE: ${TIMEZONE:-Asia/Yekaterinburg}
+      APP_ENV: prod
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      ODOO_BASE_URL: ${ODOO_BASE_URL:-https://abmapex.ru}
+      ODOO_DATABASE: ${ODOO_DATABASE:-}
+      ODOO_API_STYLE: ${ODOO_API_STYLE:-auto}
+      ODOO_API_KEY: ${ODOO_API_KEY:-}
+      ODOO_USERNAME: ${ODOO_USERNAME:-}
+      ODOO_PASSWORD: ${ODOO_PASSWORD:-}
+      ODOO_VERIFY_SSL: ${ODOO_VERIFY_SSL:-true}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-5.1-mini}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-abm_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-abm_bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  postgres_data:
+
