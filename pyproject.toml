@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 abm-odoo-discover = "abm_daily_bot.cli.odoo_discovery:main"
+abm-bot = "abm_daily_bot.telegram_app:main"
 
 [project.optional-dependencies]
 dev = [

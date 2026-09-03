@@ -58,6 +58,15 @@ cp .env.example .env
 uvicorn abm_daily_bot.main:app --reload
 ```
 
+Для первого теста в Telegram без записи в Odoo:
+
+```bash
+abm-bot
+```
+
+В Telegram отправить боту `/start`, затем `/daily`. Demo-режим использует две
+тестовые задачи и не изменяет данные Odoo.
+
 Проверка доступа к Odoo в режиме чтения:
 
 ```bash

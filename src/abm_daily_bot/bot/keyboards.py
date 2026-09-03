@@ -31,7 +31,12 @@ def task_status_keyboard(task_id: int, stages: list[tuple[int, str]]) -> InlineK
 def daily_control_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Пропустить остальные задачи", callback_data="daily:skip_rest")]
+            [
+                InlineKeyboardButton(
+                    text="Пропустить остальные задачи",
+                    callback_data="daily:skip_rest",
+                )
+            ]
         ]
     )
 

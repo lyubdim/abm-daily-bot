@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = Field(default="")
     telegram_webhook_secret: str = Field(default="")
+    demo_mode: bool = True
     public_base_url: AnyUrl | None = None
 
     odoo_base_url: AnyUrl = "https://abmapex.ru"
