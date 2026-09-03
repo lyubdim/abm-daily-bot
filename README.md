@@ -37,6 +37,7 @@ Telegram-бот для ежедневных статусов команды по
 - [Odoo API Discovery](docs/odoo_discovery.md)
 - [Practice Report Outline](docs/practice_report_outline.md)
 - [GitHub Setup](docs/github_setup.md)
+- [Development Log](docs/development_log.md)
 
 ## Безопасность
 

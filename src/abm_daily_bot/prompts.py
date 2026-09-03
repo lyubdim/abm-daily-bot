@@ -12,7 +12,10 @@ ADVICE_SYSTEM_PROMPT = """
 
 def build_advice_user_prompt(context: TaskContextForAdvice) -> str:
     task = context.task
-    updates = "\n".join(f"- {item}" for item in context.recent_updates) or "- нет недавних обновлений"
+    updates = (
+        "\n".join(f"- {item}" for item in context.recent_updates)
+        or "- нет недавних обновлений"
+    )
     deadline = task.deadline.isoformat() if task.deadline else "не указан"
     days_in_stage = (
         str(context.days_in_current_stage)
@@ -35,5 +38,4 @@ def build_advice_user_prompt(context: TaskContextForAdvice) -> str:
 
 Сформулируй один конкретный следующий шаг или один уточняющий вопрос.
 """.strip()
-
 
