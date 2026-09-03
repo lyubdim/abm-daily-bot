@@ -67,6 +67,12 @@ abm-bot
 В Telegram отправить боту `/start`, затем `/daily`. Demo-режим использует две
 тестовые задачи и не изменяет данные Odoo.
 
+Контейнерный запуск:
+
+```bash
+TELEGRAM_BOT_TOKEN=<token> docker compose up --build bot
+```
+
 Проверка доступа к Odoo в режиме чтения:
 
 ```bash

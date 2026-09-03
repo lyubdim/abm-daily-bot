@@ -1,4 +1,12 @@
 services:
+  bot:
+    build: .
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}
+      DEMO_MODE: "true"
+      TIMEZONE: Asia/Yekaterinburg
+    restart: unless-stopped
+
   postgres:
     image: postgres:17
     environment:
@@ -17,5 +25,4 @@ services:
 
 volumes:
   postgres_data:
-
 
