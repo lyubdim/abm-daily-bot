@@ -1,6 +1,5 @@
 from abm_daily_bot.domain import TaskContextForAdvice
 
-
 ADVICE_SYSTEM_PROMPT = """
 Ты помогаешь команде ABM Club сдвигать конкретные задачи.
 Дай короткий, прикладной следующий шаг по именно этой задаче.

@@ -77,7 +77,8 @@ class OdooOutboxService:
             item.state = OutboxState.RETRY
             item.next_attempt_at = now + retry_delay(item.attempt_count)
             item.last_error = str(exc)[:4000]
-        except Exception as exc:
+        # A malformed operation must be isolated instead of stopping the worker loop.
+        except Exception as exc:  # noqa: BLE001
             item.state = OutboxState.FAILED
             item.last_error = str(exc)[:4000]
         else:

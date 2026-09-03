@@ -5,7 +5,6 @@ from typing import Any
 from abm_daily_bot.config import get_settings
 from abm_daily_bot.services.odoo_client import OdooClient
 
-
 INTERESTING_TASK_FIELDS = (
     "name",
     "project_id",
