@@ -182,14 +182,19 @@ class OdooClient:
         )
 
     async def search_task_stages(self, project_id: int) -> list[dict[str, Any]]:
+        stages = await self.call(
+            "project.task.type",
+            "search_read",
+            [["project_ids", "in", [project_id]]],
+            fields=["name", "fold", "sequence"],
+            order="sequence asc, id asc",
+        )
+        if stages:
+            return stages
         return await self.call(
             "project.task.type",
             "search_read",
-            [
-                "|",
-                ["project_ids", "=", False],
-                ["project_ids", "in", [project_id]],
-            ],
+            [["project_ids", "=", False]],
             fields=["name", "fold", "sequence"],
             order="sequence asc, id asc",
         )
