@@ -9,6 +9,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from abm_daily_bot.bot.daily import router
+from abm_daily_bot.bot.weekly import router as weekly_router
 from abm_daily_bot.config import get_settings
 from abm_daily_bot.db.session import build_session_factory, initialize_database, session_scope
 from abm_daily_bot.services.odoo_client import OdooClient
@@ -42,6 +43,7 @@ async def run_polling() -> None:
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher.include_router(router)
+    dispatcher.include_router(weekly_router)
     outbox_worker = asyncio.create_task(run_outbox_worker())
     try:
         await dispatcher.start_polling(bot)

@@ -228,7 +228,8 @@ async def start(message: Message, state: FSMContext) -> None:
     await message.answer(
         "Привет! Я собираю статусы по задачам ABM Club.\n\n"
         "Команды:\n"
-        "/daily — пройти тестовый дейли\n"
+        "/daily — пройти дейли\n"
+        "/weekly — выбрать фокус недели\n"
         "/cancel — остановить текущий опрос"
     )
 
