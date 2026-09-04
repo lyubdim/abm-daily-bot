@@ -90,6 +90,7 @@ class DailyAnswer(TimestampMixin, Base):
     )
     progress_text: Mapped[str | None] = mapped_column(Text)
     selected_stage_id: Mapped[int | None] = mapped_column(Integer)
+    selected_state: Mapped[str | None] = mapped_column(String(50))
     result_url: Mapped[str | None] = mapped_column(String(1000))
 
 
@@ -145,6 +146,7 @@ class OdooOutbox(TimestampMixin, Base):
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
+    remote_record_id: Mapped[int | None] = mapped_column(Integer)
 
 
 class PMDigestRun(TimestampMixin, Base):

@@ -7,7 +7,11 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}
       DEMO_MODE: ${DEMO_MODE:-true}
       TIMEZONE: ${TIMEZONE:-Asia/Yekaterinburg}
+      DATABASE_URL: postgresql+asyncpg://abm_bot:abm_bot@postgres:5432/abm_bot
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: postgres:17
@@ -19,6 +23,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U abm_bot -d abm_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7

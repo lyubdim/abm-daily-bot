@@ -31,6 +31,23 @@ class OdooOutboxService:
             select(OdooOutbox).where(OdooOutbox.idempotency_key == idempotency_key)
         )
         if existing:
+            if method == "message_post" and existing.remote_record_id:
+                existing.model = "mail.message"
+                existing.method = "write"
+                existing.arguments = [
+                    [existing.remote_record_id],
+                    {"body": (keyword_arguments or {}).get("body", "")},
+                ]
+                existing.keyword_arguments = {}
+            else:
+                existing.model = model
+                existing.method = method
+                existing.arguments = arguments or []
+                existing.keyword_arguments = keyword_arguments or {}
+            existing.state = OutboxState.PENDING
+            existing.next_attempt_at = None
+            existing.last_error = None
+            existing.sent_at = None
             return existing
 
         item = OdooOutbox(
@@ -67,7 +84,7 @@ class OdooOutboxService:
     async def _deliver(self, item: OdooOutbox, now: datetime) -> None:
         item.attempt_count += 1
         try:
-            await self.odoo.call(
+            result = await self.odoo.call(
                 item.model,
                 item.method,
                 *item.arguments,
@@ -82,6 +99,8 @@ class OdooOutboxService:
             item.state = OutboxState.FAILED
             item.last_error = str(exc)[:4000]
         else:
+            if item.method == "message_post" and isinstance(result, int):
+                item.remote_record_id = result
             item.state = OutboxState.SENT
             item.sent_at = now
             item.next_attempt_at = None

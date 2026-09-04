@@ -9,9 +9,16 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from abm_daily_bot.config import get_settings
+from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.domain import OdooTask, TaskContextForAdvice
 from abm_daily_bot.services.ai_advice import AIAdviceService
+from abm_daily_bot.services.daily_store import (
+    get_or_create_user,
+    queue_daily_odoo_sync,
+    upsert_daily_answer,
+)
 from abm_daily_bot.services.odoo_client import OdooClient
+from abm_daily_bot.services.outbox import OdooOutboxService
 
 router = Router(name="daily")
 
@@ -355,6 +362,7 @@ async def save_answer_and_continue(
     settings = get_settings()
     if not settings.demo_mode:
         client = OdooClient(settings)
+        outbox = OdooOutboxService(client)
         comment = format_odoo_comment(
             progress=data.get("progress"),
             task_state=task_state,
@@ -363,12 +371,41 @@ async def save_answer_and_continue(
             result_url=result_url,
         )
         try:
-            await client.update_task_state(task["id"], task_state)
-            await client.post_task_comment(task["id"], comment)
+            if not message.from_user:
+                raise RuntimeError("Telegram user is unavailable")
+            answer_date = datetime.now(UTC).date()
+            session_factory = build_session_factory(settings.database_url)
+            async with session_scope(session_factory) as session:
+                user = await get_or_create_user(
+                    session,
+                    telegram_user_id=message.from_user.id,
+                    odoo_user_id=settings.odoo_default_user_id,
+                    display_name=message.from_user.full_name,
+                )
+                await upsert_daily_answer(
+                    session,
+                    user=user,
+                    task_id=task["id"],
+                    answer_date=answer_date,
+                    progress=data.get("progress"),
+                    task_state=task_state,
+                    result_url=result_url,
+                )
+                await queue_daily_odoo_sync(
+                    session,
+                    outbox,
+                    telegram_user_id=message.from_user.id,
+                    task_id=task["id"],
+                    answer_date=answer_date,
+                    task_state=task_state,
+                    comment=comment,
+                )
+            async with session_scope(session_factory) as session:
+                await outbox.process_due(session)
         except Exception as exc:  # noqa: BLE001
             await message.answer(
-                "Не удалось записать ответ в Odoo. Ответ остаётся в текущем "
-                f"опросе, попробуй выбрать статус ещё раз. Ошибка: {escape(str(exc))}"
+                "Не удалось сохранить ответ в локальную очередь. Ответ остаётся в "
+                f"текущем опросе, попробуй ещё раз. Ошибка: {escape(str(exc))}"
             )
             await state.set_state(DailyStates.status)
             return
@@ -387,7 +424,9 @@ async def save_answer_and_continue(
     if settings.demo_mode:
         await message.answer("Ответ сохранён локально для demo.")
     else:
-        await message.answer("Статус и комментарий записаны в Odoo.")
+        await message.answer(
+            "Ответ сохранён. Запись в Odoo выполнена или поставлена в очередь повтора."
+        )
     await move_to_next_task(message, state)
 
 
