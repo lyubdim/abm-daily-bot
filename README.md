@@ -105,6 +105,10 @@ TELEGRAM_BOT_TOKEN=<token> docker compose up --build bot
 При каждом контейнерном запуске `alembic upgrade head` автоматически приводит схему
 PostgreSQL к версии приложения до старта Telegram polling.
 
+Если test Odoo медленно открывается в браузере, [`scripts/check-test.cmd`](scripts/check-test.cmd)
+показывает последние ответы, завершённые дейли и состояние доставки. Значение `SENT`
+означает, что Odoo API принял операцию; `RETRY` будет повторён автоматически.
+
 Для постоянной работы на сервере используется отдельная production-конфигурация.
 Она не публикует PostgreSQL в интернет и хранит секреты вне Git:
 
