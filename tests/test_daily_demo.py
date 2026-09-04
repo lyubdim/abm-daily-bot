@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from abm_daily_bot.bot.daily import (
     DEMO_TASKS,
@@ -79,7 +79,7 @@ def test_task_advice_context_calculates_days_in_stage() -> None:
         },
         "Не проходит авторизация",
         ["Проверил API key"],
-        now=datetime(2026, 9, 4, 10, 0, tzinfo=timezone.utc),
+        now=datetime(2026, 9, 4, 10, 0, tzinfo=UTC),
     )
 
     assert context.task.stage_name == "В работе"

@@ -5,7 +5,6 @@ from openai import AsyncOpenAI
 from abm_daily_bot.domain import AdviceResult, TaskContextForAdvice
 from abm_daily_bot.prompts import ADVICE_SYSTEM_PROMPT, build_advice_user_prompt
 
-
 MAX_ADVICE_LENGTH = 1200
 
 

@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from html import escape
 from typing import Any
 
@@ -118,7 +118,7 @@ def _parse_datetime(value: Any) -> datetime | None:
         parsed = datetime.fromisoformat(str(value))
     except ValueError:
         return None
-    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
 def task_advice_context(
@@ -129,7 +129,7 @@ def task_advice_context(
     now: datetime | None = None,
 ) -> TaskContextForAdvice:
     last_stage_update = _parse_datetime(task.get("date_last_stage_update"))
-    current_time = now or datetime.now(timezone.utc)
+    current_time = now or datetime.now(UTC)
     days_in_stage = None
     if last_stage_update:
         days_in_stage = max(0, (current_time - last_stage_update).days)
