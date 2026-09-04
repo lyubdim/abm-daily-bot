@@ -7,11 +7,20 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from sqlalchemy import select
 
 from abm_daily_bot.config import get_settings
+from abm_daily_bot.db.models import User
 from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.domain import OdooTask, TaskContextForAdvice
 from abm_daily_bot.services.ai_advice import AIAdviceService
+from abm_daily_bot.services.blocker_store import (
+    open_blockers_for_user,
+    queue_blocker_odoo_sync,
+    resolve_blocker,
+    upsert_ai_advice,
+    upsert_open_blocker,
+)
 from abm_daily_bot.services.daily_store import (
     get_or_create_user,
     queue_daily_odoo_sync,
@@ -52,6 +61,7 @@ class DailyStates(StatesGroup):
     status = State()
     blocker = State()
     result_url = State()
+    resolution_url = State()
     extra = State()
 
 
@@ -180,6 +190,39 @@ def format_odoo_comment(
     return "".join(rows)
 
 
+def format_blocker_comment(
+    *,
+    blocker_text: str,
+    advice: str,
+    resolved: bool = False,
+    resolution_url: str | None = None,
+) -> str:
+    status = "Решено" if resolved else "Открыто"
+    rows = [
+        "<p><strong>[ABM Daily Bot: затруднение]</strong></p>",
+        f"<p><strong>Статус:</strong> {status}</p>",
+        f"<p><strong>Описание:</strong> {escape(blocker_text)}</p>",
+        f"<p><strong>AI-рекомендация:</strong> {escape(advice)}</p>",
+    ]
+    if resolution_url:
+        safe_url = escape(resolution_url, quote=True)
+        rows.append(f'<p><strong>Решение:</strong> <a href="{safe_url}">{safe_url}</a></p>')
+    return "".join(rows)
+
+
+def resolve_blocker_keyboard(blocker_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Затруднение решено",
+                    callback_data=f"blocker:resolve:{blocker_id}",
+                )
+            ]
+        ]
+    )
+
+
 async def ask_current_task(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     task_index = data.get("task_index", 0)
@@ -230,6 +273,7 @@ async def start(message: Message, state: FSMContext) -> None:
         "Команды:\n"
         "/daily — пройти дейли\n"
         "/weekly — выбрать фокус недели\n"
+        "/blockers — открытые затруднения\n"
         "/cancel — остановить текущий опрос"
     )
 
@@ -308,10 +352,151 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
             advice_prefix = "AI-совет"
         except Exception:  # noqa: BLE001
             advice_prefix = "AI временно недоступен. Локальная рекомендация"
-    await state.update_data(blocker=message.text, advice=advice)
+
+    blocker_id: int | None = None
+    if not settings.demo_mode:
+        if not message.from_user:
+            await message.answer("Не удалось определить Telegram-пользователя.")
+            return
+        try:
+            session_factory = build_session_factory(settings.database_url)
+            outbox = OdooOutboxService(OdooClient(settings))
+            async with session_scope(session_factory) as session:
+                user = await get_or_create_user(
+                    session,
+                    telegram_user_id=message.from_user.id,
+                    odoo_user_id=settings.odoo_default_user_id,
+                    display_name=message.from_user.full_name,
+                )
+                blocker = await upsert_open_blocker(
+                    session,
+                    user=user,
+                    task_id=task["id"],
+                    text=message.text,
+                )
+                await upsert_ai_advice(
+                    session,
+                    blocker=blocker,
+                    recommendation=advice,
+                    model=settings.ai_model if settings.openai_api_key else "local-fallback",
+                )
+                await queue_blocker_odoo_sync(
+                    session,
+                    outbox,
+                    blocker=blocker,
+                    comment=format_blocker_comment(
+                        blocker_text=message.text,
+                        advice=advice,
+                    ),
+                )
+                blocker_id = blocker.id
+            async with session_scope(session_factory) as session:
+                await outbox.process_due(session)
+        except Exception as exc:  # noqa: BLE001
+            await message.answer(
+                "Не удалось сохранить затруднение. Попробуй отправить его ещё раз. "
+                f"Ошибка: {escape(str(exc))}"
+            )
+            return
+
+    await state.update_data(blocker=message.text, advice=advice, blocker_id=blocker_id)
     await state.set_state(DailyStates.status)
-    await message.answer(f"{advice_prefix}:\n{escape(advice)}")
+    await message.answer(
+        f"{advice_prefix}:\n{escape(advice)}",
+        reply_markup=resolve_blocker_keyboard(blocker_id) if blocker_id else None,
+    )
     await message.answer("Теперь выбери статус задачи:", reply_markup=status_keyboard())
+
+
+@router.message(Command("blockers"))
+async def list_blockers(message: Message) -> None:
+    settings = get_settings()
+    if settings.demo_mode:
+        await message.answer("В demo-режиме затруднения не сохраняются.")
+        return
+    if not message.from_user:
+        return
+    try:
+        session_factory = build_session_factory(settings.database_url)
+        async with session_scope(session_factory) as session:
+            user = await session.scalar(
+                select(User).where(User.telegram_user_id == message.from_user.id)
+            )
+            blockers = await open_blockers_for_user(session, user.id) if user else []
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(f"Не удалось получить затруднения: {escape(str(exc))}")
+        return
+    if not blockers:
+        await message.answer("Открытых затруднений нет.")
+        return
+    for blocker in blockers:
+        await message.answer(
+            f"Задача Odoo #{blocker.odoo_task_id}\n{escape(blocker.text)}",
+            reply_markup=resolve_blocker_keyboard(blocker.id),
+        )
+
+
+@router.callback_query(F.data.startswith("blocker:resolve:"))
+async def request_blocker_resolution(callback: CallbackQuery, state: FSMContext) -> None:
+    if not callback.data:
+        return
+    blocker_id = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    return_state = await state.get_state()
+    await callback.answer()
+    await state.update_data(
+        resolving_blocker_id=blocker_id,
+        resolution_return_state=return_state,
+    )
+    await state.set_state(DailyStates.resolution_url)
+    if isinstance(callback.message, Message):
+        await callback.message.answer("Пришли ссылку на решение или отправь /skip.")
+
+
+@router.message(DailyStates.resolution_url, F.text)
+async def save_blocker_resolution(message: Message, state: FSMContext) -> None:
+    settings = get_settings()
+    data = await state.get_data()
+    resolution_url = None if message.text == "/skip" else message.text
+    if not message.from_user:
+        return
+    try:
+        session_factory = build_session_factory(settings.database_url)
+        outbox = OdooOutboxService(OdooClient(settings))
+        async with session_scope(session_factory) as session:
+            user = await session.scalar(
+                select(User).where(User.telegram_user_id == message.from_user.id)
+            )
+            if not user:
+                raise LookupError("Пользователь не найден")
+            blocker, advice = await resolve_blocker(
+                session,
+                blocker_id=int(data["resolving_blocker_id"]),
+                user_id=user.id,
+                resolution_url=resolution_url,
+            )
+            await queue_blocker_odoo_sync(
+                session,
+                outbox,
+                blocker=blocker,
+                comment=format_blocker_comment(
+                    blocker_text=blocker.text,
+                    advice=advice.recommendation if advice else "не сформирована",
+                    resolved=True,
+                    resolution_url=resolution_url,
+                ),
+            )
+        async with session_scope(session_factory) as session:
+            await outbox.process_due(session)
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(f"Не удалось снять затруднение: {escape(str(exc))}")
+        return
+    if data.get("resolution_return_state") == DailyStates.status.state:
+        await state.set_state(DailyStates.status)
+    else:
+        await state.clear()
+    await message.answer("Затруднение отмечено решённым, Odoo обновлена или стоит в очереди.")
+    if data.get("resolution_return_state") == DailyStates.status.state:
+        await message.answer("Продолжим дейли: выбери статус задачи.", reply_markup=status_keyboard())
 
 
 @router.callback_query(DailyStates.status, F.data == "daily:skip_rest")

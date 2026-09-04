@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from abm_daily_bot.bot.daily import (
     DEMO_TASKS,
     demo_advice,
+    format_blocker_comment,
     format_odoo_comment,
     normalize_odoo_task,
     status_keyboard,
@@ -86,4 +87,18 @@ def test_task_advice_context_calculates_days_in_stage() -> None:
     assert context.task.deadline.isoformat() == "2026-09-11"
     assert context.days_in_current_stage == 3
     assert context.recent_updates == ("Проверил API key",)
+
+
+def test_blocker_comment_escapes_content_and_includes_resolution() -> None:
+    comment = format_blocker_comment(
+        blocker_text="Нет <доступа>",
+        advice="Запросить роль & повторить",
+        resolved=True,
+        resolution_url="https://example.com/?a=1&b=2",
+    )
+
+    assert "Решено" in comment
+    assert "Нет &lt;доступа&gt;" in comment
+    assert "роль &amp; повторить" in comment
+    assert "a=1&amp;b=2" in comment
 
