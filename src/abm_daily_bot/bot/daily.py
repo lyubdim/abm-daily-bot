@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 from html import escape
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
@@ -25,6 +26,7 @@ from abm_daily_bot.services.daily_store import (
     get_or_create_user,
     queue_daily_odoo_sync,
     upsert_daily_answer,
+    upsert_daily_summary,
 )
 from abm_daily_bot.services.odoo_client import OdooClient
 from abm_daily_bot.services.outbox import OdooOutboxService
@@ -581,7 +583,7 @@ async def save_answer_and_continue(
         try:
             if not message.from_user:
                 raise RuntimeError("Telegram user is unavailable")
-            answer_date = datetime.now(UTC).date()
+            answer_date = datetime.now(ZoneInfo(settings.timezone)).date()
             session_factory = build_session_factory(settings.database_url)
             async with session_scope(session_factory) as session:
                 user = await get_or_create_user(
@@ -649,6 +651,30 @@ async def receive_extra(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     answers = data.get("answers", [])
     extra = None if message.text == "/skip" else message.text
+    settings = get_settings()
+    if not settings.demo_mode:
+        if not message.from_user:
+            return
+        try:
+            session_factory = build_session_factory(settings.database_url)
+            async with session_scope(session_factory) as session:
+                user = await get_or_create_user(
+                    session,
+                    telegram_user_id=message.from_user.id,
+                    odoo_user_id=settings.odoo_user_id_for(message.from_user.id),
+                    display_name=message.from_user.full_name,
+                )
+                await upsert_daily_summary(
+                    session,
+                    user=user,
+                    summary_date=datetime.now(ZoneInfo(settings.timezone)).date(),
+                    extra_text=extra,
+                )
+        except Exception as exc:  # noqa: BLE001
+            await message.answer(
+                f"Не удалось завершить и сохранить дейли: {escape(str(exc))}"
+            )
+            return
     await state.clear()
     await message.answer(
         "Дейли завершён.\n"

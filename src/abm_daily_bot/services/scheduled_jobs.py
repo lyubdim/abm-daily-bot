@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from abm_daily_bot.bot.management import build_digest, manager_ids
 from abm_daily_bot.config import Settings
-from abm_daily_bot.db.models import AIAdvice, Blocker, DailyAnswer, TaskCache, User
+from abm_daily_bot.db.models import AIAdvice, Blocker, DailySummary, TaskCache, User
 from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.domain import BlockerStatus
 from abm_daily_bot.services.odoo_client import OdooClient
@@ -59,7 +59,7 @@ class ScheduledJobs:
             users = list(await session.scalars(select(User).where(User.is_active.is_(True))))
             answered = set(
                 await session.scalars(
-                    select(DailyAnswer.user_id).where(DailyAnswer.answer_date == today)
+                    select(DailySummary.user_id).where(DailySummary.summary_date == today)
                 )
             )
         missing = [user for user in users if user.id not in answered]

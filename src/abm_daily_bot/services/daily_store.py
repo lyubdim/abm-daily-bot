@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from abm_daily_bot.db.models import DailyAnswer, User
+from abm_daily_bot.db.models import DailyAnswer, DailySummary, User
 from abm_daily_bot.domain import DailyAnswerStatus
 from abm_daily_bot.services.outbox import OdooOutboxService
 
@@ -102,4 +102,25 @@ async def queue_daily_odoo_sync(
             "subtype_xmlid": "mail.mt_comment",
         },
     )
+
+
+async def upsert_daily_summary(
+    session: AsyncSession,
+    *,
+    user: User,
+    summary_date: date,
+    extra_text: str | None,
+) -> DailySummary:
+    summary = await session.scalar(
+        select(DailySummary).where(
+            DailySummary.user_id == user.id,
+            DailySummary.summary_date == summary_date,
+        )
+    )
+    if not summary:
+        summary = DailySummary(user_id=user.id, summary_date=summary_date)
+        session.add(summary)
+    summary.extra_text = extra_text
+    await session.flush()
+    return summary
 

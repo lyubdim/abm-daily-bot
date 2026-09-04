@@ -94,6 +94,18 @@ class DailyAnswer(TimestampMixin, Base):
     result_url: Mapped[str | None] = mapped_column(String(1000))
 
 
+class DailySummary(TimestampMixin, Base):
+    __tablename__ = "daily_summaries"
+    __table_args__ = (
+        UniqueConstraint("user_id", "summary_date", name="uq_daily_summary"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    summary_date: Mapped[date] = mapped_column(Date, nullable=False)
+    extra_text: Mapped[str | None] = mapped_column(Text)
+
+
 class WeeklyPlan(TimestampMixin, Base):
     __tablename__ = "weekly_plans"
     __table_args__ = (UniqueConstraint("user_id", "week_start", name="uq_weekly_plan"),)

@@ -9,7 +9,7 @@ from aiogram.types import Message
 from sqlalchemy import select
 
 from abm_daily_bot.config import Settings, get_settings
-from abm_daily_bot.db.models import AIAdvice, Blocker, DailyAnswer, User
+from abm_daily_bot.db.models import AIAdvice, Blocker, DailyAnswer, DailySummary, User
 from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.domain import BlockerStatus
 from abm_daily_bot.services.odoo_client import OdooClient
@@ -52,6 +52,11 @@ async def build_digest(settings: Settings, weekly: bool = False) -> str:
                 select(DailyAnswer).where(DailyAnswer.answer_date >= period_start)
             )
         )
+        summaries = list(
+            await session.scalars(
+                select(DailySummary).where(DailySummary.summary_date >= period_start)
+            )
+        )
         blockers = list(
             await session.scalars(
                 select(Blocker).where(
@@ -61,7 +66,7 @@ async def build_digest(settings: Settings, weekly: bool = False) -> str:
         )
         advice_rows = list(await session.scalars(select(AIAdvice)))
 
-    answered_user_ids = {answer.user_id for answer in answers}
+    answered_user_ids = {summary.user_id for summary in summaries}
     advice_by_blocker = {advice.blocker_id: advice.recommendation for advice in advice_rows}
     responded = [user.display_name for user in users if user.id in answered_user_ids]
     missing = [user.display_name for user in users if user.id not in answered_user_ids]
@@ -212,7 +217,7 @@ async def remind_non_responders(message: Message) -> None:
         users = list(await session.scalars(select(User).where(User.is_active.is_(True))))
         answered = set(
             await session.scalars(
-                select(DailyAnswer.user_id).where(DailyAnswer.answer_date == today)
+                select(DailySummary.user_id).where(DailySummary.summary_date == today)
             )
         )
     missing = [user for user in users if user.id not in answered]
