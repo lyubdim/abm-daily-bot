@@ -22,6 +22,10 @@ echo Latest completed daily summaries:
 docker compose exec -T postgres psql -U abm_bot -d abm_bot -P pager=off -c "SELECT id, summary_date, left(coalesce(extra_text, ''), 70) AS extra FROM daily_summaries ORDER BY updated_at DESC LIMIT 5;"
 echo.
 
+echo Latest blockers and AI advice:
+docker compose exec -T postgres psql -U abm_bot -d abm_bot -P pager=off -c "SELECT b.id, b.odoo_task_id, b.status, left(b.text, 45) AS blocker, left(coalesce(a.recommendation, ''), 70) AS advice, left(coalesce(b.resolution_url, ''), 45) AS resolution_url FROM blockers b LEFT JOIN LATERAL (SELECT recommendation FROM ai_advices WHERE blocker_id = b.id ORDER BY id DESC LIMIT 1) a ON true ORDER BY b.updated_at DESC LIMIT 5;"
+echo.
+
 echo Odoo delivery queue:
 docker compose exec -T postgres psql -U abm_bot -d abm_bot -P pager=off -c "SELECT id, regexp_replace(idempotency_key, '^daily:[^:]+:', 'daily:TG:') AS operation_key, model, method, state, attempt_count, remote_record_id, left(coalesce(last_error, ''), 70) AS error FROM odoo_outbox ORDER BY updated_at DESC LIMIT 10;"
 echo.

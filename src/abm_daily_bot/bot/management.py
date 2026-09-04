@@ -39,6 +39,19 @@ def command_task_id(text: str | None) -> int | None:
     return int(parts[1])
 
 
+def preferred_open_stage(stages: list[dict[str, object]]) -> dict[str, object] | None:
+    open_stages = [stage for stage in stages if not bool(stage.get("fold"))]
+    preferred_names = {"в работе", "in progress"}
+    return next(
+        (
+            stage
+            for stage in open_stages
+            if str(stage.get("name", "")).strip().lower() in preferred_names
+        ),
+        open_stages[0] if open_stages else None,
+    )
+
+
 async def require_manager(message: Message, settings: Settings) -> bool:
     if message.from_user and message.from_user.id in manager_ids(settings):
         return True
@@ -264,7 +277,7 @@ async def test_reopen(message: Message) -> None:
             "project.task",
             "read",
             [task_id],
-            fields=["name", "user_ids", "state"],
+            fields=["name", "project_id", "user_ids", "state"],
         )
         if not tasks:
             await message.answer("Тестовая задача не найдена.")
@@ -273,11 +286,19 @@ async def test_reopen(message: Message) -> None:
         if odoo_user_id not in task.get("user_ids", []):
             await message.answer("Задача не назначена текущему Odoo-пользователю.")
             return
-        await client.update_task_state(task_id, "01_in_progress")
+        project = task.get("project_id")
+        project_id = int(project[0]) if isinstance(project, list | tuple) and project else 0
+        stage = preferred_open_stage(await client.search_task_stages(project_id))
+        values: dict[str, object] = {"state": "01_in_progress"}
+        if stage is not None:
+            values["stage_id"] = int(stage["id"])
+        await client.call("project.task", "write", [task_id], values)
     except Exception as exc:  # noqa: BLE001
         await message.answer(f"Не удалось открыть тестовую задачу: {escape(str(exc))}")
         return
+    stage_name = str(stage["name"]) if stage is not None else "открытый этап"
     await message.answer(
-        f"Тестовая задача #{task_id} снова открыта. Теперь отправь /daily."
+        f"Тестовая задача #{task_id} снова открыта на этапе «{stage_name}». "
+        "Теперь отправь /daily."
     )
 

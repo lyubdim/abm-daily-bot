@@ -408,7 +408,11 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
     task = data["tasks"][data["task_index"]]
     settings = get_settings()
     advice = demo_advice(task["name"], message.text)
-    advice_prefix = "Тестовая рекомендация"
+    advice_prefix = (
+        "Тестовая рекомендация"
+        if settings.demo_mode
+        else "Локальная рекомендация (AI API не настроен)"
+    )
     if settings.openai_api_key:
         try:
             recent_updates: list[str] = []
