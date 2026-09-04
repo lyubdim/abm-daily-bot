@@ -7,10 +7,12 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY src ./src
+COPY alembic.ini ./
+COPY migrations ./migrations
 
 RUN python -m pip install --no-cache-dir .
 
 USER 10001:10001
 
-CMD ["abm-bot"]
+CMD ["sh", "-c", "alembic upgrade head && exec abm-bot"]
 

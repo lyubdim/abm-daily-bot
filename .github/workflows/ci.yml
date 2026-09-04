@@ -12,6 +12,22 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: abm_bot
+          POSTGRES_USER: abm_bot
+          POSTGRES_PASSWORD: abm_bot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U abm_bot -d abm_bot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://abm_bot:abm_bot@localhost:5432/abm_bot
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,6 +40,8 @@ jobs:
         run: ruff check .
       - name: Test
         run: pytest -q
+      - name: Apply database migrations
+        run: alembic upgrade head
       - name: Build production image
         run: docker build -t abm-daily-bot:ci .
 
