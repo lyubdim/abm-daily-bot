@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 
 def _noop() -> None:
@@ -51,6 +52,13 @@ def build_scheduler(
         trigger=CronTrigger(hour=18, minute=0, timezone=timezone),
         id="blocker_escalations",
         name="Blocker escalation check",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        func=job_callbacks.get("assignment_poll", _noop),
+        trigger=IntervalTrigger(minutes=1, timezone=timezone),
+        id="assignment_poll",
+        name="Odoo task-assignment polling fallback",
         replace_existing=True,
     )
     return scheduler

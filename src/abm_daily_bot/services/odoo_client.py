@@ -161,11 +161,8 @@ class OdooClient:
         domain: list[list[Any]] = [["is_closed", "=", False]]
         if name_query:
             domain.append(["name", "ilike", name_query])
-        return await self.call(
-            "project.task",
-            "search_read",
-            domain,
-            fields=[
+        options: dict[str, Any] = {
+            "fields": [
                 "name",
                 "project_id",
                 "user_ids",
@@ -173,8 +170,15 @@ class OdooClient:
                 "state",
                 "date_deadline",
                 "access_url",
-            ],
-            limit=20,
+            ]
+        }
+        if name_query:
+            options["limit"] = 20
+        return await self.call(
+            "project.task",
+            "search_read",
+            domain,
+            **options,
         )
 
     async def search_deadlines(self, date_from: str, date_to: str) -> list[dict[str, Any]]:

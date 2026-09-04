@@ -8,11 +8,16 @@ from sqlalchemy import select
 
 from abm_daily_bot.bot.management import build_digest, manager_ids
 from abm_daily_bot.config import Settings
-from abm_daily_bot.db.models import AIAdvice, Blocker, DailyAnswer, User
+from abm_daily_bot.db.models import AIAdvice, Blocker, DailyAnswer, TaskCache, User
 from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.domain import BlockerStatus
+from abm_daily_bot.services.odoo_client import OdooClient
 
 logger = logging.getLogger(__name__)
+
+
+def new_assignee_ids(previous: list[int], current: list[int]) -> set[int]:
+    return set(current) - set(previous)
 
 
 class ScheduledJobs:
@@ -118,4 +123,73 @@ class ScheduledJobs:
                     logger.exception(
                         "Blocker escalation failed for Telegram ID %s", telegram_id
                     )
+
+    async def assignment_poll(self) -> None:
+        tasks = await OdooClient(self.settings).search_open_tasks()
+        notifications: list[tuple[int, str]] = []
+        async with session_scope(self.session_factory) as session:
+            has_baseline = (
+                await session.scalar(select(TaskCache.id).limit(1)) is not None
+            )
+            users = {
+                user.odoo_user_id: user
+                for user in await session.scalars(select(User).where(User.is_active.is_(True)))
+            }
+            for task in tasks:
+                cache = await session.scalar(
+                    select(TaskCache).where(TaskCache.odoo_task_id == task["id"])
+                )
+                current_assignees = [int(item) for item in task.get("user_ids") or []]
+                previous_assignees = cache.assignee_odoo_ids if cache else []
+                added_assignees = (
+                    new_assignee_ids(previous_assignees, current_assignees)
+                    if has_baseline
+                    else set()
+                )
+                project = task.get("project_id")
+                stage = task.get("stage_id")
+                project_name = (
+                    project[1]
+                    if isinstance(project, list | tuple) and len(project) > 1
+                    else None
+                )
+                stage_name = (
+                    stage[1]
+                    if isinstance(stage, list | tuple) and len(stage) > 1
+                    else None
+                )
+                task_url = task.get("access_url") or f"/odoo/project.task/{task['id']}"
+                if str(task_url).startswith("/"):
+                    task_url = f"{str(self.settings.odoo_base_url).rstrip('/')}{task_url}"
+                if not cache:
+                    cache = TaskCache(odoo_task_id=task["id"], name=task["name"])
+                    session.add(cache)
+                cache.name = task["name"]
+                cache.project_name = project_name
+                cache.stage_name = stage_name
+                cache.task_url = str(task_url)
+                cache.assignee_odoo_ids = current_assignees
+                cache.raw_payload = task
+                deadline = task.get("date_deadline")
+                cache.deadline = datetime.fromisoformat(str(deadline)).date() if deadline else None
+
+                text = (
+                    "<strong>Тебе назначена задача</strong>\n"
+                    f"{escape(task['name'])}\n"
+                    f"Проект: {escape(project_name or '-')}\n"
+                    f"Дедлайн: {escape(str(deadline or 'не указан'))}\n"
+                    f'<a href="{escape(str(task_url), quote=True)}">Открыть в Odoo</a>'
+                )
+                for odoo_user_id in added_assignees:
+                    user = users.get(odoo_user_id)
+                    if user:
+                        notifications.append((user.telegram_user_id, text))
+
+        for telegram_id, text in notifications:
+            try:
+                await self.bot.send_message(telegram_id, text)
+            except Exception:
+                logger.exception(
+                    "Task assignment notification failed for Telegram ID %s", telegram_id
+                )
 

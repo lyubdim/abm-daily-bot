@@ -57,6 +57,7 @@ async def run_polling() -> None:
             "remind_non_responders": jobs.remind_non_responders,
             "pm_digest": jobs.pm_digest,
             "blocker_escalations": jobs.blocker_escalations,
+            "assignment_poll": jobs.assignment_poll,
         },
     )
     scheduler.start()

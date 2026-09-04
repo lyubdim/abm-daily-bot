@@ -10,6 +10,7 @@ def test_scheduler_contains_required_jobs() -> None:
         "remind_non_responders",
         "pm_digest",
         "blocker_escalations",
+        "assignment_poll",
     }
 
 
