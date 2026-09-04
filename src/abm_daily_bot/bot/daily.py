@@ -268,6 +268,24 @@ def demo_advice(task_name: str, blocker_text: str) -> str:
 @router.message(CommandStart())
 async def start(message: Message, state: FSMContext) -> None:
     await state.clear()
+    settings = get_settings()
+    if (
+        not settings.demo_mode
+        and settings.odoo_default_user_id > 0
+        and message.from_user
+    ):
+        try:
+            session_factory = build_session_factory(settings.database_url)
+            async with session_scope(session_factory) as session:
+                await get_or_create_user(
+                    session,
+                    telegram_user_id=message.from_user.id,
+                    odoo_user_id=settings.odoo_default_user_id,
+                    display_name=message.from_user.full_name,
+                )
+        except Exception as exc:  # noqa: BLE001
+            await message.answer(f"Не удалось зарегистрировать пользователя: {escape(str(exc))}")
+            return
     await message.answer(
         "Привет! Я собираю статусы по задачам ABM Club.\n\n"
         "Команды:\n"

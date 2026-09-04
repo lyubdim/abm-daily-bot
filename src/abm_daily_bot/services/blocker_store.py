@@ -55,7 +55,10 @@ async def upsert_ai_advice(
 async def open_blockers_for_user(session: AsyncSession, user_id: int) -> list[Blocker]:
     rows = await session.scalars(
         select(Blocker)
-        .where(Blocker.user_id == user_id, Blocker.status == BlockerStatus.OPEN)
+        .where(
+            Blocker.user_id == user_id,
+            Blocker.status.in_([BlockerStatus.OPEN, BlockerStatus.ESCALATED]),
+        )
         .order_by(Blocker.created_at.desc())
     )
     return list(rows)

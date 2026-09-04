@@ -13,8 +13,10 @@ from abm_daily_bot.bot.management import router as management_router
 from abm_daily_bot.bot.weekly import router as weekly_router
 from abm_daily_bot.config import get_settings
 from abm_daily_bot.db.session import build_session_factory, initialize_database, session_scope
+from abm_daily_bot.jobs import build_scheduler
 from abm_daily_bot.services.odoo_client import OdooClient
 from abm_daily_bot.services.outbox import OdooOutboxService
+from abm_daily_bot.services.scheduled_jobs import ScheduledJobs
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +48,23 @@ async def run_polling() -> None:
     dispatcher.include_router(router)
     dispatcher.include_router(weekly_router)
     dispatcher.include_router(management_router)
+    jobs = ScheduledJobs(bot, settings)
+    scheduler = build_scheduler(
+        settings.timezone,
+        callbacks={
+            "daily_cycle": jobs.daily_cycle,
+            "weekly_planning": jobs.weekly_planning,
+            "remind_non_responders": jobs.remind_non_responders,
+            "pm_digest": jobs.pm_digest,
+            "blocker_escalations": jobs.blocker_escalations,
+        },
+    )
+    scheduler.start()
     outbox_worker = asyncio.create_task(run_outbox_worker())
     try:
         await dispatcher.start_polling(bot)
     finally:
+        scheduler.shutdown(wait=False)
         outbox_worker.cancel()
         with suppress(asyncio.CancelledError):
             await outbox_worker

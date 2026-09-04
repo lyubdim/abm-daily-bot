@@ -18,3 +18,12 @@ def test_scheduler_uses_yekaterinburg_timezone() -> None:
 
     assert str(scheduler.timezone) == "Asia/Yekaterinburg"
 
+
+def test_scheduler_uses_supplied_callbacks() -> None:
+    def daily_callback() -> None:
+        return None
+
+    scheduler = build_scheduler(callbacks={"daily_cycle": daily_callback})
+
+    assert scheduler.get_job("daily_cycle").func is daily_callback
+
