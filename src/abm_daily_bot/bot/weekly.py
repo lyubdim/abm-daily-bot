@@ -43,15 +43,14 @@ def focus_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def load_tasks() -> list[dict[str, Any]]:
+async def load_tasks(telegram_user_id: int) -> list[dict[str, Any]]:
     settings = get_settings()
     if settings.demo_mode:
         return DEMO_TASKS
-    if settings.odoo_default_user_id <= 0:
+    odoo_user_id = settings.odoo_user_id_for(telegram_user_id)
+    if odoo_user_id <= 0:
         raise RuntimeError("Для пользователя не настроена связь с Odoo")
-    raw_tasks = await OdooClient(settings).search_open_tasks_for_user(
-        settings.odoo_default_user_id
-    )
+    raw_tasks = await OdooClient(settings).search_open_tasks_for_user(odoo_user_id)
     return [
         normalize_odoo_task(task, str(settings.odoo_base_url)) for task in raw_tasks
     ]
@@ -60,8 +59,10 @@ async def load_tasks() -> list[dict[str, Any]]:
 @router.message(Command("weekly"))
 async def begin_weekly(message: Message, state: FSMContext) -> None:
     await state.clear()
+    if not message.from_user:
+        return
     try:
-        tasks = await load_tasks()
+        tasks = await load_tasks(message.from_user.id)
     except Exception as exc:  # noqa: BLE001
         await message.answer(f"Не удалось получить задачи: {escape(str(exc))}")
         return
@@ -127,7 +128,7 @@ async def save_weekly(message: Message, state: FSMContext) -> None:
                 user = await get_or_create_user(
                     session,
                     telegram_user_id=message.from_user.id,
-                    odoo_user_id=settings.odoo_default_user_id,
+                    odoo_user_id=settings.odoo_user_id_for(message.from_user.id),
                     display_name=message.from_user.full_name,
                 )
                 local_date = datetime.now(ZoneInfo(settings.timezone)).date()

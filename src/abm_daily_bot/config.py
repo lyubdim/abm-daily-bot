@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     odoo_username: str = ""
     odoo_password: str = ""
     odoo_default_user_id: int = 0
+    telegram_odoo_user_map: dict[int, int] = Field(default_factory=dict)
     odoo_verify_ssl: bool = True
 
     openai_api_key: str = ""
@@ -32,6 +33,11 @@ class Settings(BaseSettings):
     app_env: Literal["local", "stage", "prod"] = "local"
     log_level: str = "INFO"
     timezone: str = "Asia/Yekaterinburg"
+
+    def odoo_user_id_for(self, telegram_user_id: int) -> int:
+        return self.telegram_odoo_user_map.get(
+            telegram_user_id, self.odoo_default_user_id
+        )
 
 
 @lru_cache

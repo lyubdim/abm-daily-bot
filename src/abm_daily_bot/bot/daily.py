@@ -269,9 +269,12 @@ def demo_advice(task_name: str, blocker_text: str) -> str:
 async def start(message: Message, state: FSMContext) -> None:
     await state.clear()
     settings = get_settings()
+    odoo_user_id = (
+        settings.odoo_user_id_for(message.from_user.id) if message.from_user else 0
+    )
     if (
         not settings.demo_mode
-        and settings.odoo_default_user_id > 0
+        and odoo_user_id > 0
         and message.from_user
     ):
         try:
@@ -280,7 +283,7 @@ async def start(message: Message, state: FSMContext) -> None:
                 await get_or_create_user(
                     session,
                     telegram_user_id=message.from_user.id,
-                    odoo_user_id=settings.odoo_default_user_id,
+                    odoo_user_id=odoo_user_id,
                     display_name=message.from_user.full_name,
                 )
         except Exception as exc:  # noqa: BLE001
@@ -304,13 +307,14 @@ async def begin_daily(message: Message, state: FSMContext) -> None:
         tasks = DEMO_TASKS
         mode_message = "Начинаем дейли в demo-режиме. Данные в Odoo не изменяются."
     else:
-        if settings.odoo_default_user_id <= 0:
+        odoo_user_id = (
+            settings.odoo_user_id_for(message.from_user.id) if message.from_user else 0
+        )
+        if odoo_user_id <= 0:
             await message.answer("Для пользователя не настроена связь с Odoo.")
             return
         try:
-            raw_tasks = await OdooClient(settings).search_open_tasks_for_user(
-                settings.odoo_default_user_id
-            )
+            raw_tasks = await OdooClient(settings).search_open_tasks_for_user(odoo_user_id)
         except Exception as exc:  # noqa: BLE001
             await message.answer(f"Не удалось получить задачи из Odoo: {escape(str(exc))}")
             return
@@ -383,7 +387,7 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
                 user = await get_or_create_user(
                     session,
                     telegram_user_id=message.from_user.id,
-                    odoo_user_id=settings.odoo_default_user_id,
+                    odoo_user_id=settings.odoo_user_id_for(message.from_user.id),
                     display_name=message.from_user.full_name,
                 )
                 blocker = await upsert_open_blocker(
@@ -583,7 +587,7 @@ async def save_answer_and_continue(
                 user = await get_or_create_user(
                     session,
                     telegram_user_id=message.from_user.id,
-                    odoo_user_id=settings.odoo_default_user_id,
+                    odoo_user_id=settings.odoo_user_id_for(message.from_user.id),
                     display_name=message.from_user.full_name,
                 )
                 await upsert_daily_answer(
