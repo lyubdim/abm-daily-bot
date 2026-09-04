@@ -157,6 +157,39 @@ class OdooClient:
             ],
         )
 
+    async def search_open_tasks(self, name_query: str | None = None) -> list[dict[str, Any]]:
+        domain: list[list[Any]] = [["is_closed", "=", False]]
+        if name_query:
+            domain.append(["name", "ilike", name_query])
+        return await self.call(
+            "project.task",
+            "search_read",
+            domain,
+            fields=[
+                "name",
+                "project_id",
+                "user_ids",
+                "stage_id",
+                "state",
+                "date_deadline",
+                "access_url",
+            ],
+            limit=20,
+        )
+
+    async def search_deadlines(self, date_from: str, date_to: str) -> list[dict[str, Any]]:
+        return await self.call(
+            "project.task",
+            "search_read",
+            [
+                ["is_closed", "=", False],
+                ["date_deadline", ">=", date_from],
+                ["date_deadline", "<=", date_to],
+            ],
+            fields=["name", "project_id", "user_ids", "stage_id", "date_deadline"],
+            order="date_deadline asc",
+        )
+
     async def update_task_stage(self, task_id: int, stage_id: int) -> bool:
         return await self.call(
             "project.task",

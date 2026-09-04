@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     ai_model: str = "gpt-5.1-mini"
 
+    pm_telegram_ids: str = ""
+    tech_lead_telegram_ids: str = ""
+
     database_url: str = "postgresql+asyncpg://abm_bot:abm_bot@localhost:5432/abm_bot"
     app_env: Literal["local", "stage", "prod"] = "local"
     log_level: str = "INFO"
