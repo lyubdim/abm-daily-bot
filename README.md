@@ -39,6 +39,7 @@ Telegram-бот для ежедневных статусов команды по
 - [GitHub Setup](docs/github_setup.md)
 - [Development Log](docs/development_log.md)
 - [Production Deployment](docs/deployment.md)
+- [E2E Test Plan](docs/e2e_test_plan.md)
 
 ## Безопасность
 
