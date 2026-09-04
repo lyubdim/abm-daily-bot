@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     odoo_api_key: str = ""
     odoo_username: str = ""
     odoo_password: str = ""
+    odoo_default_user_id: int = 0
     odoo_verify_ssl: bool = True
 
     openai_api_key: str = ""

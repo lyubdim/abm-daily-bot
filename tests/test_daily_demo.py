@@ -1,4 +1,10 @@
-from abm_daily_bot.bot.daily import DEMO_TASKS, demo_advice, status_keyboard
+from abm_daily_bot.bot.daily import (
+    DEMO_TASKS,
+    demo_advice,
+    format_odoo_comment,
+    normalize_odoo_task,
+    status_keyboard,
+)
 
 
 def test_demo_contains_multiple_tasks() -> None:
@@ -12,7 +18,8 @@ def test_status_keyboard_contains_required_actions() -> None:
         for button in row
     }
 
-    assert "daily:stage:done" in callbacks
+    assert "daily:state:1_done" in callbacks
+    assert "daily:state:04_waiting_normal" in callbacks
     assert "daily:blocker" in callbacks
     assert "daily:skip" in callbacks
     assert "daily:skip_rest" in callbacks
@@ -23,4 +30,35 @@ def test_demo_advice_mentions_the_task() -> None:
 
     assert "Проверить API" in advice
     assert "Нет доступа" in advice
+
+
+def test_normalize_odoo_task_builds_project_and_url() -> None:
+    task = normalize_odoo_task(
+        {
+            "id": 4,
+            "name": "Интеграция",
+            "project_id": [1, "ABM Daily Bot Test"],
+            "date_deadline": "2026-09-11 12:00:00",
+            "state": "01_in_progress",
+            "access_url": "/my/tasks/4",
+        },
+        "http://odoo.test",
+    )
+
+    assert task["project"] == "ABM Daily Bot Test"
+    assert task["url"] == "http://odoo.test/my/tasks/4"
+
+
+def test_odoo_comment_escapes_user_content() -> None:
+    comment = format_odoo_comment(
+        progress="Исправил <ошибку>",
+        task_state="1_done",
+        blocker=None,
+        advice=None,
+        result_url="https://example.com/?a=1&b=2",
+    )
+
+    assert "Исправил &lt;ошибку&gt;" in comment
+    assert "Готово" in comment
+    assert "a=1&amp;b=2" in comment
 

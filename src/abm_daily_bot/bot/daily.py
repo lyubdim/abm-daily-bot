@@ -1,3 +1,4 @@
+from html import escape
 from typing import Any
 
 from aiogram import F, Router
@@ -5,6 +6,9 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+
+from abm_daily_bot.config import get_settings
+from abm_daily_bot.services.odoo_client import OdooClient
 
 router = Router(name="daily")
 
@@ -23,6 +27,15 @@ DEMO_TASKS = [
     },
 ]
 
+ODOO_TASK_STATES = [
+    ("В процессе", "01_in_progress"),
+    ("Нужны изменения", "02_changes_requested"),
+    ("Одобрено", "03_approved"),
+    ("Ожидание", "04_waiting_normal"),
+    ("Готово", "1_done"),
+]
+STATE_LABELS = {value: label for label, value in ODOO_TASK_STATES}
+
 
 class DailyStates(StatesGroup):
     progress = State()
@@ -33,13 +46,19 @@ class DailyStates(StatesGroup):
 
 
 def status_keyboard() -> InlineKeyboardMarkup:
+    status_rows = [
+        [
+            InlineKeyboardButton(
+                text=label,
+                callback_data=f"daily:state:{value}",
+            )
+            for label, value in ODOO_TASK_STATES[index : index + 2]
+        ]
+        for index in range(0, len(ODOO_TASK_STATES), 2)
+    ]
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="К выполнению", callback_data="daily:stage:todo"),
-                InlineKeyboardButton(text="В работе", callback_data="daily:stage:working"),
-            ],
-            [InlineKeyboardButton(text="Готово", callback_data="daily:stage:done")],
+        inline_keyboard=status_rows
+        + [
             [
                 InlineKeyboardButton(
                     text="Есть затруднение",
@@ -57,6 +76,45 @@ def status_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def normalize_odoo_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
+    project = task.get("project_id")
+    project_name = project[1] if isinstance(project, list | tuple) and len(project) > 1 else "-"
+    task_url = task.get("access_url") or f"/odoo/project.task/{task['id']}"
+    if str(task_url).startswith("/"):
+        task_url = f"{base_url.rstrip('/')}{task_url}"
+    return {
+        "id": task["id"],
+        "name": task["name"],
+        "project": project_name,
+        "deadline": task.get("date_deadline") or "не указан",
+        "state": task.get("state"),
+        "url": str(task_url),
+    }
+
+
+def format_odoo_comment(
+    *,
+    progress: str | None,
+    task_state: str,
+    blocker: str | None,
+    advice: str | None,
+    result_url: str | None,
+) -> str:
+    rows = [
+        "<p><strong>[ABM Daily Bot]</strong></p>",
+        f"<p><strong>Прогресс:</strong> {escape(progress or 'без изменений')}</p>",
+        f"<p><strong>Статус:</strong> {escape(STATE_LABELS.get(task_state, task_state))}</p>",
+    ]
+    if blocker:
+        rows.append(f"<p><strong>Затруднение:</strong> {escape(blocker)}</p>")
+    if advice:
+        rows.append(f"<p><strong>AI-рекомендация:</strong> {escape(advice)}</p>")
+    if result_url:
+        safe_url = escape(result_url, quote=True)
+        rows.append(f'<p><strong>Результат:</strong> <a href="{safe_url}">{safe_url}</a></p>')
+    return "".join(rows)
+
+
 async def ask_current_task(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     task_index = data.get("task_index", 0)
@@ -67,12 +125,20 @@ async def ask_current_task(message: Message, state: FSMContext) -> None:
         return
 
     task = tasks[task_index]
+    task_url = task.get("url")
+    task_link = ""
+    if task_url:
+        task_link = (
+            f'<a href="{escape(str(task_url), quote=True)}">Открыть в Odoo</a>\n'
+        )
     await state.set_state(DailyStates.progress)
     await message.answer(
         f"Задача {task_index + 1}/{len(tasks)}\n"
-        f"{task['name']}\n"
-        f"Проект: {task['project']}\n"
-        f"Дедлайн: {task['deadline']}\n\n"
+        f"{escape(str(task['name']))}\n"
+        f"Проект: {escape(str(task['project']))}\n"
+        f"Дедлайн: {escape(str(task['deadline']))}\n"
+        f"Статус: {escape(STATE_LABELS.get(task.get('state'), 'не указан'))}\n"
+        f"{task_link}\n"
         "Что сделал / какой прогресс? Можно написать «без изменений»."
     )
 
@@ -105,8 +171,32 @@ async def start(message: Message, state: FSMContext) -> None:
 @router.message(Command("daily"))
 async def begin_daily(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await state.update_data(tasks=DEMO_TASKS, task_index=0, answers=[])
-    await message.answer("Начинаем дейли в demo-режиме. Данные в Odoo не изменяются.")
+    settings = get_settings()
+    if settings.demo_mode:
+        tasks = DEMO_TASKS
+        mode_message = "Начинаем дейли в demo-режиме. Данные в Odoo не изменяются."
+    else:
+        if settings.odoo_default_user_id <= 0:
+            await message.answer("Для пользователя не настроена связь с Odoo.")
+            return
+        try:
+            raw_tasks = await OdooClient(settings).search_open_tasks_for_user(
+                settings.odoo_default_user_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            await message.answer(f"Не удалось получить задачи из Odoo: {escape(str(exc))}")
+            return
+        tasks = [
+            normalize_odoo_task(task, str(settings.odoo_base_url))
+            for task in raw_tasks
+        ]
+        mode_message = "Начинаем дейли по задачам из тестового Odoo."
+
+    if not tasks:
+        await message.answer("Открытых задач, назначенных на тебя, не найдено.")
+        return
+    await state.update_data(tasks=tasks, task_index=0, answers=[])
+    await message.answer(mode_message)
     await ask_current_task(message, state)
 
 
@@ -138,7 +228,7 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
     advice = demo_advice(task["name"], message.text)
     await state.update_data(blocker=message.text, advice=advice)
     await state.set_state(DailyStates.status)
-    await message.answer(f"AI-совет:\n{advice}")
+    await message.answer(f"AI-совет:\n{escape(advice)}")
     await message.answer("Теперь выбери статус задачи:", reply_markup=status_keyboard())
 
 
@@ -166,14 +256,14 @@ async def skip_task(callback: CallbackQuery, state: FSMContext) -> None:
     await move_to_next_task(callback.message, state)
 
 
-@router.callback_query(DailyStates.status, F.data.startswith("daily:stage:"))
-async def choose_stage(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(DailyStates.status, F.data.startswith("daily:state:"))
+async def choose_state(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer("Статус принят")
     if not isinstance(callback.message, Message) or not callback.data:
         return
-    stage = callback.data.rsplit(":", maxsplit=1)[-1]
-    await state.update_data(selected_stage=stage)
-    if stage == "done":
+    task_state = callback.data.rsplit(":", maxsplit=1)[-1]
+    await state.update_data(selected_state=task_state)
+    if task_state == "1_done":
         await state.set_state(DailyStates.result_url)
         await callback.message.answer("Пришли ссылку на результат или отправь /skip.")
         return
@@ -187,18 +277,43 @@ async def save_answer_and_continue(
 ) -> None:
     data = await state.get_data()
     task = data["tasks"][data["task_index"]]
+    task_state = data["selected_state"]
+    settings = get_settings()
+    if not settings.demo_mode:
+        client = OdooClient(settings)
+        comment = format_odoo_comment(
+            progress=data.get("progress"),
+            task_state=task_state,
+            blocker=data.get("blocker"),
+            advice=data.get("advice"),
+            result_url=result_url,
+        )
+        try:
+            await client.update_task_state(task["id"], task_state)
+            await client.post_task_comment(task["id"], comment)
+        except Exception as exc:  # noqa: BLE001
+            await message.answer(
+                "Не удалось записать ответ в Odoo. Ответ остаётся в текущем "
+                f"опросе, попробуй выбрать статус ещё раз. Ошибка: {escape(str(exc))}"
+            )
+            await state.set_state(DailyStates.status)
+            return
+
     answers: list[dict[str, Any]] = list(data.get("answers", []))
     answers.append(
         {
             "task_id": task["id"],
             "progress": data.get("progress"),
-            "stage": data.get("selected_stage"),
+            "state": task_state,
             "blocker": data.get("blocker"),
             "result_url": result_url,
         }
     )
     await state.update_data(answers=answers, blocker=None, advice=None)
-    await message.answer("Ответ сохранён локально для demo.")
+    if settings.demo_mode:
+        await message.answer("Ответ сохранён локально для demo.")
+    else:
+        await message.answer("Статус и комментарий записаны в Odoo.")
     await move_to_next_task(message, state)
 
 

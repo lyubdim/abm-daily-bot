@@ -133,6 +133,7 @@ class OdooClient:
                 "project_id",
                 "user_ids",
                 "stage_id",
+                "state",
                 "date_deadline",
                 "date_last_stage_update",
                 "access_url",
@@ -145,6 +146,14 @@ class OdooClient:
             "write",
             [task_id],
             {"stage_id": stage_id},
+        )
+
+    async def update_task_state(self, task_id: int, task_state: str) -> bool:
+        return await self.call(
+            "project.task",
+            "write",
+            [task_id],
+            {"state": task_state},
         )
 
     async def post_task_comment(self, task_id: int, body: str) -> int:
