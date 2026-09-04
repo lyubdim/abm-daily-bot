@@ -36,8 +36,9 @@ echo.
 echo Recent bot logs:
 docker compose logs --tail 40 bot
 echo.
-docker compose ps --status running --services bot | findstr /x "bot" >nul
-if errorlevel 1 (
+set "BOT_RUNNING="
+for /f %%I in ('docker compose ps --status running --quiet bot') do set "BOT_RUNNING=1"
+if not defined BOT_RUNNING (
   echo ERROR: the bot stopped after startup. Send a screenshot of this window.
   pause
   exit /b 1
