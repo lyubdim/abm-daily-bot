@@ -292,6 +292,11 @@ async def start(message: Message, state: FSMContext) -> None:
         except Exception as exc:  # noqa: BLE001
             await message.answer(f"Не удалось зарегистрировать пользователя: {escape(str(exc))}")
             return
+    test_command = (
+        "\n/test_reopen 4 — снова открыть тестовую задачу"
+        if settings.app_env == "local"
+        else ""
+    )
     await message.answer(
         "Привет! Я собираю статусы по задачам ABM Club.\n\n"
         "Команды:\n"
@@ -299,6 +304,7 @@ async def start(message: Message, state: FSMContext) -> None:
         "/weekly — выбрать фокус недели\n"
         "/blockers — открытые затруднения\n"
         "/cancel — остановить текущий опрос"
+        f"{test_command}"
     )
 
 

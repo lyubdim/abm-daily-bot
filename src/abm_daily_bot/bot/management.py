@@ -32,6 +32,13 @@ def manager_ids(settings: Settings) -> set[int]:
     return parse_telegram_ids(settings.pm_telegram_ids, settings.tech_lead_telegram_ids)
 
 
+def command_task_id(text: str | None) -> int | None:
+    parts = (text or "").split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].isdigit():
+        return None
+    return int(parts[1])
+
+
 async def require_manager(message: Message, settings: Settings) -> bool:
     if message.from_user and message.from_user.id in manager_ids(settings):
         return True
@@ -233,4 +240,44 @@ async def remind_non_responders(message: Message) -> None:
             logger.exception("Failed to send daily reminder to Telegram user %s", user.id)
             continue
     await message.answer(f"Напоминание отправлено: {sent} из {len(missing)}.")
+
+
+@router.message(Command("test_reopen"))
+async def test_reopen(message: Message) -> None:
+    settings = get_settings()
+    if settings.app_env != "local":
+        await message.answer("Тестовая команда недоступна в этом окружении.")
+        return
+    task_id = command_task_id(message.text)
+    if task_id is None:
+        await message.answer("Формат команды: /test_reopen 4")
+        return
+    if not message.from_user:
+        return
+    odoo_user_id = settings.odoo_user_id_for(message.from_user.id)
+    if odoo_user_id <= 0:
+        await message.answer("Для пользователя не настроена связь с Odoo.")
+        return
+    try:
+        client = OdooClient(settings)
+        tasks = await client.call(
+            "project.task",
+            "read",
+            [task_id],
+            fields=["name", "user_ids", "state"],
+        )
+        if not tasks:
+            await message.answer("Тестовая задача не найдена.")
+            return
+        task = tasks[0]
+        if odoo_user_id not in task.get("user_ids", []):
+            await message.answer("Задача не назначена текущему Odoo-пользователю.")
+            return
+        await client.update_task_state(task_id, "01_in_progress")
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(f"Не удалось открыть тестовую задачу: {escape(str(exc))}")
+        return
+    await message.answer(
+        f"Тестовая задача #{task_id} снова открыта. Теперь отправь /daily."
+    )
 
