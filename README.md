@@ -40,6 +40,7 @@ Telegram-бот для ежедневных статусов команды по
 - [Development Log](docs/development_log.md)
 - [Production Deployment](docs/deployment.md)
 - [E2E Test Plan](docs/e2e_test_plan.md)
+- [E2E Test Results: 2026-09-05](docs/e2e_results_2026-09-05.md)
 
 ## Безопасность
 
