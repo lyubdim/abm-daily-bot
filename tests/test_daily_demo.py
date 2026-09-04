@@ -6,6 +6,7 @@ from abm_daily_bot.bot.daily import (
     format_blocker_comment,
     format_odoo_comment,
     normalize_odoo_task,
+    stage_is_done,
     status_keyboard,
     task_advice_context,
 )
@@ -22,11 +23,18 @@ def test_status_keyboard_contains_required_actions() -> None:
         for button in row
     }
 
-    assert "daily:state:1_done" in callbacks
-    assert "daily:state:04_waiting_normal" in callbacks
+    assert "daily:stage:1" in callbacks
+    assert "daily:stage:2" in callbacks
+    assert "daily:stage:3" in callbacks
     assert "daily:blocker" in callbacks
     assert "daily:skip" in callbacks
     assert "daily:skip_rest" in callbacks
+
+
+def test_done_stage_uses_odoo_fold_or_known_name() -> None:
+    assert stage_is_done({"name": "Архив", "fold": True}) is True
+    assert stage_is_done({"name": "Готово", "fold": False}) is True
+    assert stage_is_done({"name": "В работе", "fold": False}) is False
 
 
 def test_demo_advice_mentions_the_task() -> None:
@@ -44,6 +52,7 @@ def test_normalize_odoo_task_builds_project_and_url() -> None:
             "project_id": [1, "ABM Daily Bot Test"],
             "date_deadline": "2026-09-11 12:00:00",
             "state": "01_in_progress",
+            "stage_id": [22, "В работе"],
             "access_url": "/my/tasks/4",
         },
         "http://odoo.test",
@@ -51,6 +60,7 @@ def test_normalize_odoo_task_builds_project_and_url() -> None:
 
     assert task["project"] == "ABM Daily Bot Test"
     assert task["url"] == "http://odoo.test/odoo/project.task/4"
+    assert task["stage_id"] == 22
 
 
 def test_odoo_comment_escapes_user_content() -> None:

@@ -50,6 +50,7 @@ async def upsert_daily_answer(
     answer_date: date,
     progress: str | None,
     task_state: str,
+    stage_id: int,
     result_url: str | None,
 ) -> DailyAnswer:
     answer = await session.scalar(
@@ -76,6 +77,7 @@ async def upsert_daily_answer(
     answer.status = answer_status
     answer.progress_text = progress
     answer.selected_state = task_state
+    answer.selected_stage_id = stage_id
     answer.result_url = result_url
     await session.flush()
     return answer
@@ -89,6 +91,7 @@ async def queue_daily_odoo_sync(
     task_id: int,
     answer_date: date,
     task_state: str,
+    stage_id: int,
     comment: str,
 ) -> None:
     key_prefix = f"daily:odoo:{odoo_user_id}:{task_id}:{answer_date.isoformat()}"
@@ -103,7 +106,7 @@ async def queue_daily_odoo_sync(
         idempotency_key=f"{key_prefix}:state",
         model="project.task",
         method="write",
-        arguments=[[task_id], {"state": task_state}],
+        arguments=[[task_id], {"stage_id": stage_id, "state": task_state}],
     )
     await _adopt_legacy_outbox_item(
         session,

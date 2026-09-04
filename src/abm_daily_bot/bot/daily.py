@@ -33,18 +33,28 @@ from abm_daily_bot.services.outbox import OdooOutboxService
 
 router = Router(name="daily")
 
+DEMO_STAGES = [
+    {"id": 1, "name": "К выполнению", "fold": False},
+    {"id": 2, "name": "В работе", "fold": False},
+    {"id": 3, "name": "Готово", "fold": True},
+]
+
 DEMO_TASKS = [
     {
         "id": 101,
         "name": "Подготовить структуру дейли-бота",
         "project": "ABM Club",
         "deadline": "2026-09-08",
+        "stage": "К выполнению",
+        "available_stages": DEMO_STAGES,
     },
     {
         "id": 102,
         "name": "Проверить интеграцию с Odoo",
         "project": "ABM Club",
         "deadline": "2026-09-10",
+        "stage": "В работе",
+        "available_stages": DEMO_STAGES,
     },
 ]
 
@@ -67,16 +77,17 @@ class DailyStates(StatesGroup):
     extra = State()
 
 
-def status_keyboard() -> InlineKeyboardMarkup:
+def status_keyboard(stages: list[dict[str, Any]] | None = None) -> InlineKeyboardMarkup:
+    available_stages = stages or DEMO_STAGES
     status_rows = [
         [
             InlineKeyboardButton(
-                text=label,
-                callback_data=f"daily:state:{value}",
+                text=str(stage["name"]),
+                callback_data=f"daily:stage:{stage['id']}",
             )
-            for label, value in ODOO_TASK_STATES[index : index + 2]
+            for stage in available_stages[index : index + 2]
         ]
-        for index in range(0, len(ODOO_TASK_STATES), 2)
+        for index in range(0, len(available_stages), 2)
     ]
     return InlineKeyboardMarkup(
         inline_keyboard=status_rows
@@ -107,6 +118,7 @@ def normalize_odoo_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
     return {
         "id": task["id"],
         "name": task["name"],
+        "project_id": project[0] if isinstance(project, list | tuple) and project else None,
         "project": project_name,
         "deadline": task.get("date_deadline") or "не указан",
         "state": task.get("state"),
@@ -116,9 +128,20 @@ def normalize_odoo_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
             and len(task["stage_id"]) > 1
             else None
         ),
+        "stage_id": (
+            task["stage_id"][0]
+            if isinstance(task.get("stage_id"), list | tuple) and task["stage_id"]
+            else None
+        ),
+        "available_stages": [],
         "date_last_stage_update": task.get("date_last_stage_update"),
         "url": str(task_url),
     }
+
+
+def stage_is_done(stage: dict[str, Any]) -> bool:
+    name = str(stage.get("name") or "").strip().lower()
+    return bool(stage.get("fold")) or name in {"готово", "done", "закрыто", "closed"}
 
 
 def _parse_date(value: Any) -> date | None:
@@ -323,14 +346,26 @@ async def begin_daily(message: Message, state: FSMContext) -> None:
             await message.answer("Для пользователя не настроена связь с Odoo.")
             return
         try:
-            raw_tasks = await OdooClient(settings).search_open_tasks_for_user(odoo_user_id)
+            client = OdooClient(settings)
+            raw_tasks = await client.search_open_tasks_for_user(odoo_user_id)
+            stages_by_project: dict[int, list[dict[str, Any]]] = {}
+            for raw_task in raw_tasks:
+                project = raw_task.get("project_id")
+                project_id = (
+                    int(project[0])
+                    if isinstance(project, list | tuple) and project
+                    else 0
+                )
+                if project_id and project_id not in stages_by_project:
+                    stages_by_project[project_id] = await client.search_task_stages(project_id)
         except Exception as exc:  # noqa: BLE001
             await message.answer(f"Не удалось получить задачи из Odoo: {escape(str(exc))}")
             return
-        tasks = [
-            normalize_odoo_task(task, str(settings.odoo_base_url))
-            for task in raw_tasks
-        ]
+        tasks = []
+        for raw_task in raw_tasks:
+            task = normalize_odoo_task(raw_task, str(settings.odoo_base_url))
+            task["available_stages"] = stages_by_project.get(task["project_id"], [])
+            tasks.append(task)
         mode_message = "Начинаем дейли по задачам из тестового Odoo."
 
     if not tasks:
@@ -351,7 +386,12 @@ async def cancel(message: Message, state: FSMContext) -> None:
 async def receive_progress(message: Message, state: FSMContext) -> None:
     await state.update_data(progress=message.text)
     await state.set_state(DailyStates.status)
-    await message.answer("Выбери состояние задачи:", reply_markup=status_keyboard())
+    data = await state.get_data()
+    task = data["tasks"][data["task_index"]]
+    await message.answer(
+        "Выбери этап задачи:",
+        reply_markup=status_keyboard(task.get("available_stages")),
+    )
 
 
 @router.callback_query(DailyStates.status, F.data == "daily:blocker")
@@ -436,7 +476,10 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
         f"{advice_prefix}:\n{escape(advice)}",
         reply_markup=resolve_blocker_keyboard(blocker_id) if blocker_id else None,
     )
-    await message.answer("Теперь выбери статус задачи:", reply_markup=status_keyboard())
+    await message.answer(
+        "Теперь выбери этап задачи:",
+        reply_markup=status_keyboard(task.get("available_stages")),
+    )
 
 
 @router.message(Command("blockers"))
@@ -527,7 +570,11 @@ async def save_blocker_resolution(message: Message, state: FSMContext) -> None:
         await state.clear()
     await message.answer("Затруднение отмечено решённым, Odoo обновлена или стоит в очереди.")
     if data.get("resolution_return_state") == DailyStates.status.state:
-        await message.answer("Продолжим дейли: выбери статус задачи.", reply_markup=status_keyboard())
+        task = data["tasks"][data["task_index"]]
+        await message.answer(
+            "Продолжим дейли: выбери этап задачи.",
+            reply_markup=status_keyboard(task.get("available_stages")),
+        )
 
 
 @router.callback_query(DailyStates.status, F.data == "daily:skip_rest")
@@ -554,14 +601,32 @@ async def skip_task(callback: CallbackQuery, state: FSMContext) -> None:
     await move_to_next_task(callback.message, state)
 
 
-@router.callback_query(DailyStates.status, F.data.startswith("daily:state:"))
-async def choose_state(callback: CallbackQuery, state: FSMContext) -> None:
-    await callback.answer("Состояние принято")
+@router.callback_query(DailyStates.status, F.data.startswith("daily:stage:"))
+async def choose_stage(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer("Этап принят")
     if not isinstance(callback.message, Message) or not callback.data:
         return
-    task_state = callback.data.rsplit(":", maxsplit=1)[-1]
-    await state.update_data(selected_state=task_state)
-    if task_state == "1_done":
+    stage_id = int(callback.data.rsplit(":", maxsplit=1)[-1])
+    data = await state.get_data()
+    task = data["tasks"][data["task_index"]]
+    selected_stage = next(
+        (
+            stage
+            for stage in task.get("available_stages", [])
+            if int(stage["id"]) == stage_id
+        ),
+        None,
+    )
+    if selected_stage is None:
+        await callback.message.answer("Этап больше недоступен. Запусти /daily заново.")
+        return
+    task_state = "1_done" if stage_is_done(selected_stage) else "01_in_progress"
+    await state.update_data(
+        selected_stage_id=stage_id,
+        selected_stage_name=str(selected_stage["name"]),
+        selected_state=task_state,
+    )
+    if stage_is_done(selected_stage):
         await state.set_state(DailyStates.result_url)
         await callback.message.answer("Пришли ссылку на результат или отправь /skip.")
         return
@@ -576,13 +641,15 @@ async def save_answer_and_continue(
     data = await state.get_data()
     task = data["tasks"][data["task_index"]]
     task_state = data["selected_state"]
+    stage_id = int(data["selected_stage_id"])
+    stage_name = str(data["selected_stage_name"])
     settings = get_settings()
     if not settings.demo_mode:
         client = OdooClient(settings)
         outbox = OdooOutboxService(client)
         comment = format_odoo_comment(
             progress=data.get("progress"),
-            task_state=task_state,
+            task_state=stage_name,
             blocker=data.get("blocker"),
             advice=data.get("advice"),
             result_url=result_url,
@@ -606,6 +673,7 @@ async def save_answer_and_continue(
                     answer_date=answer_date,
                     progress=data.get("progress"),
                     task_state=task_state,
+                    stage_id=stage_id,
                     result_url=result_url,
                 )
                 await queue_daily_odoo_sync(
@@ -615,6 +683,7 @@ async def save_answer_and_continue(
                     task_id=task["id"],
                     answer_date=answer_date,
                     task_state=task_state,
+                    stage_id=stage_id,
                     comment=comment,
                 )
             async with session_scope(session_factory) as session:
@@ -633,6 +702,8 @@ async def save_answer_and_continue(
             "task_id": task["id"],
             "progress": data.get("progress"),
             "state": task_state,
+            "stage_id": stage_id,
+            "stage": stage_name,
             "blocker": data.get("blocker"),
             "result_url": result_url,
         }

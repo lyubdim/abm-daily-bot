@@ -181,6 +181,19 @@ class OdooClient:
             **options,
         )
 
+    async def search_task_stages(self, project_id: int) -> list[dict[str, Any]]:
+        return await self.call(
+            "project.task.type",
+            "search_read",
+            [
+                "|",
+                ["project_ids", "=", False],
+                ["project_ids", "in", [project_id]],
+            ],
+            fields=["name", "fold", "sequence"],
+            order="sequence asc, id asc",
+        )
+
     async def search_deadlines(self, date_from: str, date_to: str) -> list[dict[str, Any]]:
         return await self.call(
             "project.task",
