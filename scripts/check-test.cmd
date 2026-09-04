@@ -15,7 +15,7 @@ docker compose ps
 echo.
 
 echo Latest daily answers:
-docker compose exec -T postgres psql -U abm_bot -d abm_bot -P pager=off -c "SELECT id, odoo_task_id, answer_date, selected_state, left(coalesce(progress_text, ''), 70) AS progress FROM daily_answers ORDER BY updated_at DESC LIMIT 5;"
+docker compose exec -T postgres psql -U abm_bot -d abm_bot -P pager=off -c "SELECT id, odoo_task_id, answer_date, selected_state, left(coalesce(progress_text, ''), 55) AS progress, left(coalesce(result_url, ''), 55) AS result_url FROM daily_answers ORDER BY updated_at DESC LIMIT 5;"
 echo.
 
 echo Latest completed daily summaries:
