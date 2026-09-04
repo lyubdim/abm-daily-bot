@@ -247,7 +247,8 @@ async def ask_current_task(message: Message, state: FSMContext) -> None:
         f"{escape(str(task['name']))}\n"
         f"Проект: {escape(str(task['project']))}\n"
         f"Дедлайн: {escape(str(task['deadline']))}\n"
-        f"Статус: {escape(STATE_LABELS.get(task.get('state'), 'не указан'))}\n"
+        f"Этап Odoo: {escape(str(task.get('stage') or 'не указан'))}\n"
+        f"Состояние Odoo: {escape(STATE_LABELS.get(task.get('state'), 'не указано'))}\n"
         f"{task_link}\n"
         "Что сделал / какой прогресс? Можно написать «без изменений»."
     )
@@ -344,7 +345,7 @@ async def cancel(message: Message, state: FSMContext) -> None:
 async def receive_progress(message: Message, state: FSMContext) -> None:
     await state.update_data(progress=message.text)
     await state.set_state(DailyStates.status)
-    await message.answer("Выбери статус задачи:", reply_markup=status_keyboard())
+    await message.answer("Выбери состояние задачи:", reply_markup=status_keyboard())
 
 
 @router.callback_query(DailyStates.status, F.data == "daily:blocker")
@@ -549,7 +550,7 @@ async def skip_task(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(DailyStates.status, F.data.startswith("daily:state:"))
 async def choose_state(callback: CallbackQuery, state: FSMContext) -> None:
-    await callback.answer("Статус принят")
+    await callback.answer("Состояние принято")
     if not isinstance(callback.message, Message) or not callback.data:
         return
     task_state = callback.data.rsplit(":", maxsplit=1)[-1]

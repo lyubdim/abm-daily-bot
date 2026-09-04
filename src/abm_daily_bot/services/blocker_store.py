@@ -101,6 +101,7 @@ async def queue_blocker_odoo_sync(
         arguments=[[blocker.odoo_task_id]],
         keyword_arguments={
             "body": comment,
+            "body_is_html": True,
             "message_type": "comment",
             "subtype_xmlid": "mail.mt_comment",
         },

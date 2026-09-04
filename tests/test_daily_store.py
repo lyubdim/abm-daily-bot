@@ -60,4 +60,5 @@ async def test_daily_outbox_adopts_latest_legacy_keys_for_odoo_user() -> None:
         "daily:odoo:94:4:2026-09-05:state",
         "daily:odoo:94:4:2026-09-05:comment",
     ]
+    assert outbox.enqueue.await_args_list[1].kwargs["keyword_arguments"]["body_is_html"] is True
 
