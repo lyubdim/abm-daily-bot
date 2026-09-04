@@ -23,7 +23,7 @@ docker compose exec -T postgres psql -U abm_bot -d abm_bot -P pager=off -c "SELE
 echo.
 
 echo Odoo delivery queue:
-docker compose exec -T postgres psql -U abm_bot -d abm_bot -P pager=off -c "SELECT id, method, state, attempt_count, remote_record_id, left(coalesce(last_error, ''), 90) AS error FROM odoo_outbox ORDER BY updated_at DESC LIMIT 10;"
+docker compose exec -T postgres psql -U abm_bot -d abm_bot -P pager=off -c "SELECT id, regexp_replace(idempotency_key, '^daily:[^:]+:', 'daily:TG:') AS operation_key, model, method, state, attempt_count, remote_record_id, left(coalesce(last_error, ''), 70) AS error FROM odoo_outbox ORDER BY updated_at DESC LIMIT 10;"
 echo.
 
 echo SENT means Odoo accepted the operation. RETRY will be delivered automatically.

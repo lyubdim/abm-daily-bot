@@ -50,7 +50,7 @@ def test_normalize_odoo_task_builds_project_and_url() -> None:
     )
 
     assert task["project"] == "ABM Daily Bot Test"
-    assert task["url"] == "http://odoo.test/my/tasks/4"
+    assert task["url"] == "http://odoo.test/odoo/project.task/4"
 
 
 def test_odoo_comment_escapes_user_content() -> None:

@@ -101,7 +101,7 @@ def status_keyboard() -> InlineKeyboardMarkup:
 def normalize_odoo_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
     project = task.get("project_id")
     project_name = project[1] if isinstance(project, list | tuple) and len(project) > 1 else "-"
-    task_url = task.get("access_url") or f"/odoo/project.task/{task['id']}"
+    task_url = f"/odoo/project.task/{task['id']}"
     if str(task_url).startswith("/"):
         task_url = f"{base_url.rstrip('/')}{task_url}"
     return {
@@ -604,7 +604,7 @@ async def save_answer_and_continue(
                 await queue_daily_odoo_sync(
                     session,
                     outbox,
-                    telegram_user_id=message.from_user.id,
+                    odoo_user_id=user.odoo_user_id,
                     task_id=task["id"],
                     answer_date=answer_date,
                     task_state=task_state,

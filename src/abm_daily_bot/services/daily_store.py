@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from abm_daily_bot.db.models import DailyAnswer, DailySummary, User
+from abm_daily_bot.db.models import DailyAnswer, DailySummary, OdooOutbox, User
 from abm_daily_bot.domain import DailyAnswerStatus
 from abm_daily_bot.services.outbox import OdooOutboxService
 
@@ -85,19 +85,30 @@ async def queue_daily_odoo_sync(
     session: AsyncSession,
     outbox: OdooOutboxService,
     *,
-    telegram_user_id: int,
+    odoo_user_id: int,
     task_id: int,
     answer_date: date,
     task_state: str,
     comment: str,
 ) -> None:
-    key_prefix = f"daily:{telegram_user_id}:{task_id}:{answer_date.isoformat()}"
+    key_prefix = f"daily:odoo:{odoo_user_id}:{task_id}:{answer_date.isoformat()}"
+    legacy_prefix = f"daily:%:{task_id}:{answer_date.isoformat()}"
+    await _adopt_legacy_outbox_item(
+        session,
+        stable_key=f"{key_prefix}:state",
+        legacy_pattern=f"{legacy_prefix}:state",
+    )
     await outbox.enqueue(
         session,
         idempotency_key=f"{key_prefix}:state",
         model="project.task",
         method="write",
         arguments=[[task_id], {"state": task_state}],
+    )
+    await _adopt_legacy_outbox_item(
+        session,
+        stable_key=f"{key_prefix}:comment",
+        legacy_pattern=f"{legacy_prefix}:comment",
     )
     await outbox.enqueue(
         session,
@@ -111,6 +122,27 @@ async def queue_daily_odoo_sync(
             "subtype_xmlid": "mail.mt_comment",
         },
     )
+
+
+async def _adopt_legacy_outbox_item(
+    session: AsyncSession,
+    *,
+    stable_key: str,
+    legacy_pattern: str,
+) -> None:
+    existing = await session.scalar(
+        select(OdooOutbox).where(OdooOutbox.idempotency_key == stable_key)
+    )
+    if existing:
+        return
+    legacy = await session.scalar(
+        select(OdooOutbox)
+        .where(OdooOutbox.idempotency_key.like(legacy_pattern))
+        .order_by(OdooOutbox.updated_at.desc(), OdooOutbox.id.desc())
+    )
+    if legacy:
+        legacy.idempotency_key = stable_key
+        await session.flush()
 
 
 async def upsert_daily_summary(

@@ -158,7 +158,7 @@ class ScheduledJobs:
                     if isinstance(stage, list | tuple) and len(stage) > 1
                     else None
                 )
-                task_url = task.get("access_url") or f"/odoo/project.task/{task['id']}"
+                task_url = f"/odoo/project.task/{task['id']}"
                 if str(task_url).startswith("/"):
                     task_url = f"{str(self.settings.odoo_base_url).rstrip('/')}{task_url}"
                 if not cache:
