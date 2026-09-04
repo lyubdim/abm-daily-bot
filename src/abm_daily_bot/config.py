@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AnyUrl, Field
+from pydantic import AnyUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     app_env: Literal["local", "stage", "prod"] = "local"
     log_level: str = "INFO"
     timezone: str = "Asia/Yekaterinburg"
+
+    @field_validator("public_base_url", mode="before")
+    @classmethod
+    def empty_optional_url_as_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     def odoo_user_id_for(self, telegram_user_id: int) -> int:
         return self.telegram_odoo_user_map.get(

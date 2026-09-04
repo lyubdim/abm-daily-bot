@@ -26,10 +26,23 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Waiting for the bot startup check...
+timeout /t 8 /nobreak >nul
+
 echo.
 echo ABM Daily Bot test services are running:
 docker compose ps
 echo.
+echo Recent bot logs:
+docker compose logs --tail 40 bot
+echo.
+docker compose ps --status running --services bot | findstr /x "bot" >nul
+if errorlevel 1 (
+  echo ERROR: the bot stopped after startup. Send a screenshot of this window.
+  pause
+  exit /b 1
+)
+
 echo Open Telegram and send /start to @abm_club_daily_bot
 pause
 
