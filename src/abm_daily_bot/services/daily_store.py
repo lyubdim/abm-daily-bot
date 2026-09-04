@@ -23,6 +23,15 @@ async def get_or_create_user(
         user.display_name = display_name
         return user
 
+    user = await session.scalar(
+        select(User).where(User.odoo_user_id == odoo_user_id)
+    )
+    if user:
+        user.telegram_user_id = telegram_user_id
+        user.display_name = display_name
+        await session.flush()
+        return user
+
     user = User(
         telegram_user_id=telegram_user_id,
         odoo_user_id=odoo_user_id,
