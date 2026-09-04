@@ -1,3 +1,4 @@
+from datetime import date, datetime, timezone
 from html import escape
 from typing import Any
 
@@ -8,6 +9,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from abm_daily_bot.config import get_settings
+from abm_daily_bot.domain import OdooTask, TaskContextForAdvice
+from abm_daily_bot.services.ai_advice import AIAdviceService
 from abm_daily_bot.services.odoo_client import OdooClient
 
 router = Router(name="daily")
@@ -88,8 +91,63 @@ def normalize_odoo_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
         "project": project_name,
         "deadline": task.get("date_deadline") or "не указан",
         "state": task.get("state"),
+        "stage": (
+            task["stage_id"][1]
+            if isinstance(task.get("stage_id"), list | tuple)
+            and len(task["stage_id"]) > 1
+            else None
+        ),
+        "date_last_stage_update": task.get("date_last_stage_update"),
         "url": str(task_url),
     }
+
+
+def _parse_date(value: Any) -> date | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value)).date()
+    except ValueError:
+        return None
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+
+def task_advice_context(
+    task: dict[str, Any],
+    blocker_text: str,
+    recent_updates: list[str],
+    *,
+    now: datetime | None = None,
+) -> TaskContextForAdvice:
+    last_stage_update = _parse_datetime(task.get("date_last_stage_update"))
+    current_time = now or datetime.now(timezone.utc)
+    days_in_stage = None
+    if last_stage_update:
+        days_in_stage = max(0, (current_time - last_stage_update).days)
+    return TaskContextForAdvice(
+        task=OdooTask(
+            id=int(task["id"]),
+            name=str(task["name"]),
+            project_name=str(task.get("project") or "") or None,
+            stage_name=str(task.get("stage") or "") or None,
+            deadline=_parse_date(task.get("deadline")),
+            url=str(task.get("url") or "") or None,
+            assignee_odoo_ids=(),
+            date_last_stage_update=last_stage_update,
+        ),
+        blocker_text=blocker_text,
+        recent_updates=tuple(recent_updates),
+        days_in_current_stage=days_in_stage,
+    )
 
 
 def format_odoo_comment(
@@ -225,10 +283,26 @@ async def request_blocker(callback: CallbackQuery, state: FSMContext) -> None:
 async def receive_blocker(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     task = data["tasks"][data["task_index"]]
+    settings = get_settings()
     advice = demo_advice(task["name"], message.text)
+    advice_prefix = "Тестовая рекомендация"
+    if settings.openai_api_key:
+        try:
+            recent_updates: list[str] = []
+            if not settings.demo_mode:
+                recent_updates = await OdooClient(settings).recent_task_updates(task["id"])
+            context = task_advice_context(task, message.text, recent_updates)
+            result = await AIAdviceService(
+                model=settings.ai_model,
+                api_key=settings.openai_api_key,
+            ).make_advice(context)
+            advice = result.recommendation
+            advice_prefix = "AI-совет"
+        except Exception:  # noqa: BLE001
+            advice_prefix = "AI временно недоступен. Локальная рекомендация"
     await state.update_data(blocker=message.text, advice=advice)
     await state.set_state(DailyStates.status)
-    await message.answer(f"AI-совет:\n{escape(advice)}")
+    await message.answer(f"{advice_prefix}:\n{escape(advice)}")
     await message.answer("Теперь выбери статус задачи:", reply_markup=status_keyboard())
 
 

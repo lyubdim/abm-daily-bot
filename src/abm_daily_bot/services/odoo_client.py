@@ -1,6 +1,7 @@
 import asyncio
 import ssl
 import xmlrpc.client
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlparse
 
@@ -11,6 +12,22 @@ from abm_daily_bot.config import Settings
 
 class OdooUnavailableError(RuntimeError):
     """Raised when Odoo cannot be reached or returns a temporary failure."""
+
+
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        if data.strip():
+            self.parts.append(data.strip())
+
+
+def html_to_text(value: str) -> str:
+    parser = _HTMLTextExtractor()
+    parser.feed(value)
+    return " ".join(parser.parts)
 
 
 class OdooClient:
@@ -165,4 +182,23 @@ class OdooClient:
             message_type="comment",
             subtype_xmlid="mail.mt_comment",
         )
+
+    async def recent_task_updates(self, task_id: int, limit: int = 5) -> list[str]:
+        messages = await self.call(
+            "mail.message",
+            "search_read",
+            [
+                ["model", "=", "project.task"],
+                ["res_id", "=", task_id],
+                ["message_type", "in", ["comment", "email"]],
+            ],
+            fields=["body", "date"],
+            order="date desc",
+            limit=limit,
+        )
+        return [
+            text
+            for message in reversed(messages)
+            if (text := html_to_text(str(message.get("body") or "")))
+        ]
 
