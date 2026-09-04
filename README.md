@@ -98,6 +98,10 @@ TELEGRAM_ODOO_USER_MAP={"123456789":94,"987654321":105}
 TELEGRAM_BOT_TOKEN=<token> docker compose up --build bot
 ```
 
+На Windows для тестового запуска можно открыть
+[`scripts/start-test.cmd`](scripts/start-test.cmd). Скрипт проверит Docker, соберёт
+актуальный образ, запустит PostgreSQL и бота и покажет состояние контейнеров.
+
 Для постоянной работы на сервере используется отдельная production-конфигурация.
 Она не публикует PostgreSQL в интернет и хранит секреты вне Git:
 
