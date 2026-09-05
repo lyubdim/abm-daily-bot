@@ -22,7 +22,6 @@ async def test_existing_odoo_user_is_rebound_to_current_telegram() -> None:
     session = MagicMock()
     session.scalar = AsyncMock(side_effect=[None, existing])
     session.flush = AsyncMock()
-    session.flush = AsyncMock()
 
     result = await get_or_create_user(
         session,
@@ -47,6 +46,7 @@ async def test_personal_invite_cannot_take_over_existing_odoo_binding() -> None:
     )
     session = MagicMock()
     session.scalar = AsyncMock(side_effect=[None, existing])
+    session.flush = AsyncMock()
 
     with pytest.raises(ValueError, match="уже использована"):
         await claim_invited_user(
@@ -58,6 +58,30 @@ async def test_personal_invite_cannot_take_over_existing_odoo_binding() -> None:
         )
 
     session.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_personal_invite_repairs_legacy_bot_callback_binding() -> None:
+    existing = User(
+        telegram_user_id=9000,
+        odoo_user_id=1382,
+        display_name="Bot account",
+    )
+    session = MagicMock()
+    session.scalar = AsyncMock(side_effect=[None, existing])
+    session.flush = AsyncMock()
+
+    result = await claim_invited_user(
+        session,
+        telegram_user_id=111,
+        odoo_user_id=1382,
+        display_name="Participant",
+        role=UserRole.MEMBER,
+        legacy_bot_user_id=9000,
+    )
+
+    assert result.telegram_user_id == 111
+    session.flush.assert_awaited_once()
 
 
 @pytest.mark.asyncio

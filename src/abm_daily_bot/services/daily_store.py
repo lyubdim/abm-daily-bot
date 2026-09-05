@@ -49,6 +49,7 @@ async def claim_invited_user(
     odoo_user_id: int,
     display_name: str,
     role: UserRole,
+    legacy_bot_user_id: int | None = None,
 ) -> User:
     telegram_user = await session.scalar(
         select(User).where(User.telegram_user_id == telegram_user_id)
@@ -57,7 +58,10 @@ async def claim_invited_user(
     if telegram_user and telegram_user.odoo_user_id != odoo_user_id:
         raise ValueError("Telegram-профиль уже связан с другим пользователем Odoo")
     if odoo_user and odoo_user.telegram_user_id != telegram_user_id:
-        raise ValueError("Эта персональная ссылка уже использована")
+        if odoo_user.telegram_user_id == legacy_bot_user_id:
+            odoo_user.telegram_user_id = telegram_user_id
+        else:
+            raise ValueError("Эта персональная ссылка уже использована")
 
     user = telegram_user or odoo_user
     if not user:

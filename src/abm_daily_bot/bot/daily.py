@@ -360,6 +360,7 @@ async def start(message: Message, state: FSMContext) -> None:
                     odoo_user_id=odoo_user_id,
                     display_name=message.from_user.full_name,
                     role=role,
+                    legacy_bot_user_id=message.bot.id,
                 )
         except (KeyError, TypeError, ValueError) as exc:
             await message.answer(f"Не удалось применить приглашение: {escape(str(exc))}")
