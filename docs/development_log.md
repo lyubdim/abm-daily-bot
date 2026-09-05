@@ -11,6 +11,8 @@
 - Связка Telegram/Odoo и роль переживают перезапуск; `/whoami` показывает текущий профиль.
 - `/daily` и `/weekly` фильтруют реальные задачи по Odoo `user_ids` связанного сотрудника.
 - GitHub Actions `33961815667`: линтер, тесты, две миграции и production image прошли.
+- Live `/whoami` подтвердил связку Telegram Дмитрия с Odoo user `1382`, ролью PM и
+  областью `PORTF-008`; bootstrap recovery-ссылка после проверки отозвана.
 
 ## 2026-09-05: production write-back и локализация
 
