@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, date, datetime
 from html import escape
 from typing import Any
@@ -11,6 +12,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
+from abm_daily_bot.bot.keyboards import telegram_button_text
 from abm_daily_bot.config import get_settings
 from abm_daily_bot.db.models import User, UserRole
 from abm_daily_bot.db.session import build_session_factory, session_scope
@@ -35,6 +37,7 @@ from abm_daily_bot.services.outbox import OdooOutboxService
 from abm_daily_bot.services.telegram_invites import claim_telegram_invite
 
 router = Router(name="daily")
+logger = logging.getLogger(__name__)
 
 DEMO_STAGES = [
     {"id": 1, "name": "К выполнению", "fold": False},
@@ -101,7 +104,7 @@ def status_keyboard(stages: list[dict[str, Any]] | None = None) -> InlineKeyboar
     status_rows = [
         [
             InlineKeyboardButton(
-                text=stage_button_label(str(stage["name"])),
+                text=telegram_button_text(stage_button_label(str(stage["name"]))),
                 callback_data=f"daily:stage:{stage['id']}",
             )
             for stage in available_stages[index : index + 2]
@@ -344,7 +347,18 @@ async def ask_current_task(message: Message, state: FSMContext) -> None:
 
 async def move_to_next_task(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
-    await state.update_data(task_index=data.get("task_index", 0) + 1, progress=None)
+    await state.update_data(
+        task_index=data.get("task_index", 0) + 1,
+        progress=None,
+        selected_stage_id=None,
+        selected_stage_name=None,
+        selected_state=None,
+        blocker=None,
+        blocker_original=None,
+        advice=None,
+        blocker_id=None,
+        clarification_question=None,
+    )
     await ask_current_task(message, state)
 
 
@@ -425,8 +439,9 @@ async def start(message: Message, state: FSMContext) -> None:
                     odoo_user_id=odoo_user_id,
                     display_name=message.from_user.full_name,
                 )
-        except Exception as exc:  # noqa: BLE001
-            await message.answer(f"Не удалось зарегистрировать пользователя: {escape(str(exc))}")
+        except Exception:
+            logger.exception("Failed to register Telegram user")
+            await message.answer("Не удалось зарегистрировать профиль. Попробуй через минуту.")
             return
     if not settings.demo_mode and odoo_user_id <= 0:
         await message.answer(
@@ -475,8 +490,9 @@ async def begin_daily_for_user(
                 project_id = int(project[0]) if isinstance(project, list | tuple) and project else 0
                 if project_id and project_id not in stages_by_project:
                     stages_by_project[project_id] = await client.search_task_stages(project_id)
-        except Exception as exc:  # noqa: BLE001
-            await message.answer(f"Не удалось получить задачи из Odoo: {escape(str(exc))}")
+        except Exception:
+            logger.exception("Failed to load daily tasks from Odoo")
+            await message.answer("Odoo временно недоступна. Попробуй запустить дейли позже.")
             return
         tasks = []
         for raw_task in raw_tasks:
@@ -586,11 +602,9 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
             advice=advice,
             clarification_question=clarification_question,
         )
-    except Exception as exc:  # noqa: BLE001
-        await message.answer(
-            "Не удалось сохранить затруднение. Попробуй отправить его ещё раз. "
-            f"Ошибка: {escape(str(exc))}"
-        )
+    except Exception:
+        logger.exception("Failed to persist blocker")
+        await message.answer("Не удалось сохранить затруднение. Попробуй отправить его ещё раз.")
         return
 
     await state.update_data(
@@ -723,10 +737,9 @@ async def receive_blocker_clarification(message: Message, state: FSMContext) -> 
             advice=advice,
             clarification_question=None,
         )
-    except Exception as exc:  # noqa: BLE001
-        await message.answer(
-            f"Не удалось сохранить ответ на уточнение. Попробуй ещё раз. Ошибка: {escape(str(exc))}"
-        )
+    except Exception:
+        logger.exception("Failed to persist blocker clarification")
+        await message.answer("Не удалось сохранить ответ на уточнение. Попробуй ещё раз.")
         return
     await state.update_data(
         blocker=blocker_text,
@@ -759,8 +772,9 @@ async def list_blockers(message: Message) -> None:
                 select(User).where(User.telegram_user_id == message.from_user.id)
             )
             blockers = await open_blockers_for_user(session, user.id) if user else []
-    except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Не удалось получить затруднения: {escape(str(exc))}")
+    except Exception:
+        logger.exception("Failed to load blockers")
+        await message.answer("Не удалось получить затруднения. Попробуй через минуту.")
         return
     if not blockers:
         await message.answer("Открытых затруднений нет.")
@@ -831,15 +845,17 @@ async def save_blocker_resolution(message: Message, state: FSMContext) -> None:
             )
         async with session_scope(session_factory) as session:
             await outbox.process_due(session)
-    except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Не удалось снять затруднение: {escape(str(exc))}")
+    except Exception:
+        logger.exception("Failed to resolve blocker")
+        await message.answer("Не удалось снять затруднение. Попробуй ещё раз.")
         return
-    if data.get("resolution_return_state") == DailyStates.status.state:
-        await state.set_state(DailyStates.status)
+    return_state = data.get("resolution_return_state")
+    if return_state:
+        await state.set_state(return_state)
     else:
         await state.clear()
     await message.answer("Затруднение отмечено решённым, Odoo обновлена или стоит в очереди.")
-    if data.get("resolution_return_state") == DailyStates.status.state:
+    if return_state == DailyStates.status.state:
         task = data["tasks"][data["task_index"]]
         await message.answer(
             "Продолжим дейли: выбери этап задачи.",
@@ -974,10 +990,11 @@ async def save_answer_and_continue(
                 )
             async with session_scope(session_factory) as session:
                 await outbox.process_due(session)
-        except Exception as exc:  # noqa: BLE001
+        except Exception:
+            logger.exception("Failed to persist daily answer")
             await message.answer(
                 "Не удалось сохранить ответ в локальную очередь. Ответ остаётся в "
-                f"текущем опросе, попробуй ещё раз. Ошибка: {escape(str(exc))}"
+                "текущем опросе, попробуй ещё раз."
             )
             await state.set_state(DailyStates.status)
             return False
@@ -1055,8 +1072,9 @@ async def receive_extra(message: Message, state: FSMContext) -> None:
                     summary_date=datetime.now(ZoneInfo(settings.timezone)).date(),
                     extra_text=extra,
                 )
-        except Exception as exc:  # noqa: BLE001
-            await message.answer(f"Не удалось завершить и сохранить дейли: {escape(str(exc))}")
+        except Exception:
+            logger.exception("Failed to persist daily summary")
+            await message.answer("Не удалось завершить дейли. Попробуй ещё раз.")
             return
     await state.clear()
     await message.answer(

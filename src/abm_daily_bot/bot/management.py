@@ -246,8 +246,9 @@ async def invite_user(message: Message) -> None:
     query, role = request
     try:
         matches = await OdooClient(settings).search_users(query)
-    except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Не удалось найти пользователя Odoo: {escape(str(exc))}")
+    except Exception:
+        logger.exception("Failed to search Odoo user for invitation")
+        await message.answer("Не удалось найти пользователя Odoo. Попробуй через минуту.")
         return
     if not matches:
         await message.answer("Активный пользователь Odoo по запросу не найден.")
@@ -286,8 +287,9 @@ async def invite_user(message: Message) -> None:
                 created_by_user_id=issuer.id if issuer else None,
             )
         bot_user = await message.bot.get_me()
-    except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Не удалось создать приглашение: {escape(str(exc))}")
+    except Exception:
+        logger.exception("Failed to create Telegram invitation")
+        await message.answer("Не удалось создать приглашение. Попробуй ещё раз.")
         return
 
     link = f"https://t.me/{bot_user.username}?start={token}"
@@ -478,8 +480,9 @@ async def digest(message: Message) -> None:
     weekly = digest_is_weekly(message.text)
     try:
         text = await build_digest(settings, weekly=weekly)
-    except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Не удалось собрать дайджест: {escape(str(exc))}")
+    except Exception:
+        logger.exception("Failed to build requested digest")
+        await message.answer("Не удалось собрать дайджест. Попробуй через минуту.")
         return
     await message.answer(text)
 
@@ -493,8 +496,9 @@ async def task_status(message: Message) -> None:
     if len(parts) == 1:
         try:
             text = await build_digest(settings)
-        except Exception as exc:  # noqa: BLE001
-            await message.answer(f"Не удалось получить статус: {escape(str(exc))}")
+        except Exception:
+            logger.exception("Failed to build team status")
+            await message.answer("Не удалось получить статус. Попробуй через минуту.")
             return
         await message.answer(text)
         return
@@ -504,8 +508,9 @@ async def task_status(message: Message) -> None:
             await message.answer(person_status)
             return
         tasks = await OdooClient(settings).search_open_tasks(parts[1])
-    except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Не удалось получить статус: {escape(str(exc))}")
+    except Exception:
+        logger.exception("Failed to search status by person or task")
+        await message.answer("Не удалось получить статус. Попробуй через минуту.")
         return
     if not tasks:
         await message.answer("Открытых задач по запросу не найдено.")
@@ -533,8 +538,9 @@ async def deadlines(message: Message) -> None:
     end = today + timedelta(days=6)
     try:
         tasks = await OdooClient(settings).search_deadlines(today.isoformat(), end.isoformat())
-    except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Не удалось получить дедлайны: {escape(str(exc))}")
+    except Exception:
+        logger.exception("Failed to load deadlines from Odoo")
+        await message.answer("Не удалось получить дедлайны. Попробуй через минуту.")
         return
     if not tasks:
         await message.answer("На ближайшие семь дней дедлайнов нет.")
@@ -615,8 +621,9 @@ async def test_reopen(message: Message) -> None:
         if stage is not None:
             values["stage_id"] = int(stage["id"])
         await client.call("project.task", "write", [task_id], values)
-    except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Не удалось открыть тестовую задачу: {escape(str(exc))}")
+    except Exception:
+        logger.exception("Failed to reopen local test task")
+        await message.answer("Не удалось открыть тестовую задачу. Проверь локальные логи.")
         return
     stage_name = str(stage["name"]) if stage is not None else "открытый этап"
     await message.answer(

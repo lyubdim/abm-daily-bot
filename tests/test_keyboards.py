@@ -1,4 +1,4 @@
-from abm_daily_bot.bot.daily import progress_keyboard, start_keyboard
+from abm_daily_bot.bot.daily import progress_keyboard, start_keyboard, status_keyboard
 from abm_daily_bot.bot.keyboards import scheduled_action_keyboard, telegram_button_text
 
 
@@ -27,3 +27,12 @@ def test_button_text_is_truncated_on_utf8_boundary() -> None:
 
     assert result.endswith("…")
     assert len(result.encode("utf-8")) <= 40
+
+
+def test_long_odoo_stage_name_fits_telegram_button_limit() -> None:
+    keyboard = status_keyboard(
+        [{"id": 999, "name": "Очень длинное название этапа " * 5, "fold": False}]
+    )
+
+    label = keyboard.inline_keyboard[0][0].text
+    assert len(label.encode("utf-8")) <= 56

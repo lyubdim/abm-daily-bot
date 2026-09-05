@@ -1,5 +1,5 @@
+import logging
 from datetime import datetime
-from html import escape
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -18,6 +18,7 @@ from abm_daily_bot.services.odoo_client import OdooClient
 from abm_daily_bot.services.weekly_store import monday_for, upsert_weekly_plan
 
 router = Router(name="weekly")
+logger = logging.getLogger(__name__)
 
 
 class WeeklyStates(StatesGroup):
@@ -52,9 +53,7 @@ async def load_tasks(telegram_user_id: int) -> list[dict[str, Any]]:
     if odoo_user_id <= 0:
         raise RuntimeError("Для пользователя не настроена связь с Odoo")
     raw_tasks = await OdooClient(settings).search_open_tasks_for_user(odoo_user_id)
-    return [
-        normalize_odoo_task(task, str(settings.odoo_base_url)) for task in raw_tasks
-    ]
+    return [normalize_odoo_task(task, str(settings.odoo_base_url)) for task in raw_tasks]
 
 
 async def begin_weekly_for_user(
@@ -65,8 +64,9 @@ async def begin_weekly_for_user(
     await state.clear()
     try:
         tasks = await load_tasks(telegram_user_id)
-    except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Не удалось получить задачи: {escape(str(exc))}")
+    except Exception:
+        logger.exception("Failed to load weekly focus tasks")
+        await message.answer("Не удалось получить задачи из Odoo. Попробуй через минуту.")
         return
     if not tasks:
         await message.answer("Нет открытых задач для недельного фокуса.")
@@ -155,8 +155,9 @@ async def save_weekly(message: Message, state: FSMContext) -> None:
                     focus_task_ids=selected,
                     strategic_text=strategic_text,
                 )
-        except Exception as exc:  # noqa: BLE001
-            await message.answer(f"Не удалось сохранить недельный план: {escape(str(exc))}")
+        except Exception:
+            logger.exception("Failed to persist weekly plan")
+            await message.answer("Не удалось сохранить недельный план. Попробуй ещё раз.")
             return
 
     await state.clear()
