@@ -17,11 +17,11 @@ if errorlevel 1 (
   exit /b 1
 )
 
-docker rm -f abm-daily-bot >nul 2>&1
-docker compose up -d --build postgres bot
+docker compose -p abm-daily-bot -f docker-compose.yml down --remove-orphans >nul 2>&1
+docker compose -p abm-daily-bot -f docker-compose.yml up -d --build postgres bot
 if errorlevel 1 (
   echo ERROR: services failed to start.
-  docker compose logs --tail 80 bot
+  docker compose -p abm-daily-bot -f docker-compose.yml logs --tail 80 bot
   pause
   exit /b 1
 )
@@ -31,13 +31,13 @@ timeout /t 8 /nobreak >nul
 
 echo.
 echo ABM Daily Bot test services are running:
-docker compose ps
+docker compose -p abm-daily-bot -f docker-compose.yml ps
 echo.
 echo Recent bot logs:
-docker compose logs --tail 40 bot
+docker compose -p abm-daily-bot -f docker-compose.yml logs --tail 40 bot
 echo.
 set "BOT_RUNNING="
-for /f %%I in ('docker compose ps --status running --quiet bot') do set "BOT_RUNNING=1"
+for /f %%I in ('docker compose -p abm-daily-bot -f docker-compose.yml ps --status running --quiet bot') do set "BOT_RUNNING=1"
 if not defined BOT_RUNNING (
   echo ERROR: the bot stopped after startup. Send a screenshot of this window.
   pause

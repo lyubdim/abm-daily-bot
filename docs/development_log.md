@@ -1,5 +1,12 @@
 # Development Log
 
+## 2026-09-05: первый видимый production E2E
+
+- Telegram `/daily` показал production task `597` из связанного портфеля.
+- Polling назначений независимо прислал участнику ту же задачу.
+- Ссылка уведомления перенесена в компактную inline-кнопку без web preview.
+- Windows-скрипты останавливают старый Compose project перед запуском одного polling.
+
 ## 2026-09-05: production preview
 
 - Через production XML-RPC подтверждено чтение задач портфеля и права модели.

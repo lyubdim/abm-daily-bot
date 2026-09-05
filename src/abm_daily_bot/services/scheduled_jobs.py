@@ -4,6 +4,7 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
 from abm_daily_bot.bot.management import build_digest, manager_ids
@@ -126,7 +127,7 @@ class ScheduledJobs:
 
     async def assignment_poll(self) -> None:
         tasks = await OdooClient(self.settings).search_open_tasks()
-        notifications: list[tuple[int, str]] = []
+        notifications: list[tuple[int, str, str]] = []
         async with session_scope(self.session_factory) as session:
             has_baseline = (
                 await session.scalar(select(TaskCache.id).limit(1)) is not None
@@ -177,17 +178,24 @@ class ScheduledJobs:
                     "<strong>Тебе назначена задача</strong>\n"
                     f"{escape(task['name'])}\n"
                     f"Проект: {escape(project_name or '-')}\n"
-                    f"Дедлайн: {escape(str(deadline or 'не указан'))}\n"
-                    f'<a href="{escape(str(task_url), quote=True)}">Открыть в Odoo</a>'
+                    f"Дедлайн: {escape(str(deadline or 'не указан'))}"
                 )
                 for odoo_user_id in added_assignees:
                     user = users.get(odoo_user_id)
                     if user:
-                        notifications.append((user.telegram_user_id, text))
+                        notifications.append((user.telegram_user_id, text, str(task_url)))
 
-        for telegram_id, text in notifications:
+        for telegram_id, text, task_url in notifications:
             try:
-                await self.bot.send_message(telegram_id, text)
+                await self.bot.send_message(
+                    telegram_id,
+                    text,
+                    reply_markup=InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [InlineKeyboardButton(text="Открыть в Odoo ↗", url=task_url)]
+                        ]
+                    ),
+                )
             except Exception:
                 logger.exception(
                     "Task assignment notification failed for Telegram ID %s", telegram_id

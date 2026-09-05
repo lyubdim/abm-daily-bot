@@ -22,19 +22,20 @@ if errorlevel 1 (
 )
 
 echo Starting ABM Daily Bot against production Odoo portfolio PORTF-008...
-docker compose --env-file .env --env-file .env.prod.local -f docker-compose.yml -f docker-compose.prod-preview.yml up -d --build postgres bot
+docker compose -p abm-daily-bot -f docker-compose.yml down --remove-orphans >nul 2>&1
+docker compose -p abm-daily-bot --env-file .env --env-file .env.prod.local -f docker-compose.yml -f docker-compose.prod-preview.yml up -d --build postgres bot
 if errorlevel 1 (
   echo ERROR: services failed to start.
-  docker compose -f docker-compose.yml -f docker-compose.prod-preview.yml logs --tail 80 bot
+  docker compose -p abm-daily-bot -f docker-compose.yml -f docker-compose.prod-preview.yml logs --tail 80 bot
   pause
   exit /b 1
 )
 
 timeout /t 8 /nobreak >nul
 echo.
-docker compose -f docker-compose.yml -f docker-compose.prod-preview.yml ps
+docker compose -p abm-daily-bot -f docker-compose.yml -f docker-compose.prod-preview.yml ps
 echo.
-docker compose -f docker-compose.yml -f docker-compose.prod-preview.yml logs --tail 30 bot
+docker compose -p abm-daily-bot -f docker-compose.yml -f docker-compose.prod-preview.yml logs --tail 30 bot
 echo.
 echo Production preview is running. Open Telegram and send /daily.
 echo Expected task: [BOT TEST] ABM Daily Bot production E2E, Odoo task 597.
