@@ -10,6 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from abm_daily_bot.bot.daily import DEMO_TASKS, normalize_odoo_task
+from abm_daily_bot.bot.keyboards import telegram_button_text
 from abm_daily_bot.config import get_settings
 from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.services.daily_store import get_or_create_user
@@ -34,7 +35,7 @@ def focus_keyboard(
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"{marker} {task['name']}",
+                    text=telegram_button_text(f"{marker} {task['name']}"),
                     callback_data=f"weekly:toggle:{task_id}",
                 )
             ]
@@ -56,13 +57,14 @@ async def load_tasks(telegram_user_id: int) -> list[dict[str, Any]]:
     ]
 
 
-@router.message(Command("weekly"))
-async def begin_weekly(message: Message, state: FSMContext) -> None:
+async def begin_weekly_for_user(
+    message: Message,
+    state: FSMContext,
+    telegram_user_id: int,
+) -> None:
     await state.clear()
-    if not message.from_user:
-        return
     try:
-        tasks = await load_tasks(message.from_user.id)
+        tasks = await load_tasks(telegram_user_id)
     except Exception as exc:  # noqa: BLE001
         await message.answer(f"Не удалось получить задачи: {escape(str(exc))}")
         return
@@ -76,6 +78,20 @@ async def begin_weekly(message: Message, state: FSMContext) -> None:
         "На каких задачах фокус на этой неделе? Выбери одну или несколько:",
         reply_markup=focus_keyboard(tasks, set()),
     )
+
+
+@router.message(Command("weekly"))
+async def begin_weekly(message: Message, state: FSMContext) -> None:
+    if not message.from_user:
+        return
+    await begin_weekly_for_user(message, state, message.from_user.id)
+
+
+@router.callback_query(F.data == "scheduled:weekly")
+async def begin_scheduled_weekly(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await begin_weekly_for_user(callback.message, state, callback.from_user.id)
 
 
 @router.callback_query(WeeklyStates.focus, F.data.startswith("weekly:toggle:"))
@@ -148,4 +164,3 @@ async def save_weekly(message: Message, state: FSMContext) -> None:
         f"Недельный фокус сохранён. Выбрано задач: {len(selected)}.\n"
         f"Стратегическое: {strategic_text or 'нет'}."
     )
-

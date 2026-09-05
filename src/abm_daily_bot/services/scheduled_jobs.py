@@ -7,6 +7,7 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
+from abm_daily_bot.bot.keyboards import scheduled_action_keyboard
 from abm_daily_bot.bot.management import build_digest, manager_ids
 from abm_daily_bot.config import Settings
 from abm_daily_bot.db.models import (
@@ -61,15 +62,31 @@ class ScheduledJobs:
 
     async def daily_cycle(self) -> None:
         users = await self._active_users()
-        await self._send_to_users(
-            "Время дейли. Отправь /daily, чтобы пройти задачи по очереди.", users
-        )
+        for user in users:
+            try:
+                await self.bot.send_message(
+                    user.telegram_user_id,
+                    "Время дейли. Пройди открытые задачи по очереди.",
+                    reply_markup=scheduled_action_keyboard(
+                        "daily", "Начать дейли"
+                    ),
+                )
+            except Exception:
+                logger.exception("Daily start failed for Telegram user %s", user.id)
 
     async def weekly_planning(self) -> None:
         users = await self._active_users()
-        await self._send_to_users(
-            "Пора выбрать фокус недели. Отправь /weekly.", users
-        )
+        for user in users:
+            try:
+                await self.bot.send_message(
+                    user.telegram_user_id,
+                    "Пора выбрать фокус недели из открытых задач.",
+                    reply_markup=scheduled_action_keyboard(
+                        "weekly", "Выбрать фокус недели"
+                    ),
+                )
+            except Exception:
+                logger.exception("Weekly start failed for Telegram user %s", user.id)
 
     async def remind_non_responders(self) -> None:
         today = datetime.now(ZoneInfo(self.settings.timezone)).date()
@@ -217,4 +234,3 @@ class ScheduledJobs:
                 logger.exception(
                     "Task assignment notification failed for Telegram ID %s", telegram_id
                 )
-

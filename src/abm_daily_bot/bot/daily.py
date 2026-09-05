@@ -289,6 +289,15 @@ def resolve_blocker_keyboard(blocker_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def progress_keyboard(task_url: str | None) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="Без изменений", callback_data="daily:no_changes")]
+    ]
+    if task_url:
+        rows.append([InlineKeyboardButton(text="Открыть в Odoo ↗", url=task_url)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 async def ask_current_task(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     task_index = data.get("task_index", 0)
@@ -300,18 +309,6 @@ async def ask_current_task(message: Message, state: FSMContext) -> None:
 
     task = tasks[task_index]
     task_url = task.get("url")
-    task_actions = None
-    if task_url:
-        task_actions = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="Открыть в Odoo ↗",
-                        url=str(task_url),
-                    )
-                ]
-            ]
-        )
     await state.set_state(DailyStates.progress)
     await message.answer(
         f"<b>Задача {task_index + 1} из {len(tasks)}</b>\n"
@@ -320,7 +317,7 @@ async def ask_current_task(message: Message, state: FSMContext) -> None:
         f"📅 Дедлайн: {escape(str(task['deadline']))}\n"
         f"🏷 Этап: {escape(str(task.get('stage') or 'не указан'))}\n\n"
         "Что сделал или какой прогресс? Можно написать «без изменений».",
-        reply_markup=task_actions,
+        reply_markup=progress_keyboard(str(task_url) if task_url else None),
     )
 
 
@@ -438,17 +435,18 @@ async def start(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(Command("daily"))
-async def begin_daily(message: Message, state: FSMContext) -> None:
+async def begin_daily_for_user(
+    message: Message,
+    state: FSMContext,
+    telegram_user_id: int,
+) -> None:
     await state.clear()
     settings = get_settings()
     if settings.demo_mode:
         tasks = DEMO_TASKS
         mode_message = "Начинаем дейли в demo-режиме. Данные в Odoo не изменяются."
     else:
-        odoo_user_id = (
-            settings.odoo_user_id_for(message.from_user.id) if message.from_user else 0
-        )
+        odoo_user_id = settings.odoo_user_id_for(telegram_user_id)
         if odoo_user_id <= 0:
             await message.answer("Для пользователя не настроена связь с Odoo.")
             return
@@ -484,6 +482,20 @@ async def begin_daily(message: Message, state: FSMContext) -> None:
     await ask_current_task(message, state)
 
 
+@router.message(Command("daily"))
+async def begin_daily(message: Message, state: FSMContext) -> None:
+    if not message.from_user:
+        return
+    await begin_daily_for_user(message, state, message.from_user.id)
+
+
+@router.callback_query(F.data == "scheduled:daily")
+async def begin_scheduled_daily(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await begin_daily_for_user(callback.message, state, callback.from_user.id)
+
+
 @router.message(Command("cancel"))
 async def cancel(message: Message, state: FSMContext) -> None:
     await state.clear()
@@ -497,6 +509,21 @@ async def receive_progress(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     task = data["tasks"][data["task_index"]]
     await message.answer(
+        "Выбери этап задачи:",
+        reply_markup=status_keyboard(task.get("available_stages")),
+    )
+
+
+@router.callback_query(DailyStates.progress, F.data == "daily:no_changes")
+async def receive_no_changes(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer("Отмечено: без изменений")
+    if not isinstance(callback.message, Message):
+        return
+    await state.update_data(progress="без изменений")
+    data = await state.get_data()
+    task = data["tasks"][data["task_index"]]
+    await state.set_state(DailyStates.status)
+    await callback.message.answer(
         "Выбери этап задачи:",
         reply_markup=status_keyboard(task.get("available_stages")),
     )

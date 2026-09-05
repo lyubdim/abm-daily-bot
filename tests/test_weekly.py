@@ -19,3 +19,11 @@ def test_focus_keyboard_marks_selected_tasks() -> None:
     assert keyboard.inline_keyboard[1][0].text == "[x] Документация"
     assert keyboard.inline_keyboard[-1][0].callback_data == "weekly:done"
 
+
+def test_focus_keyboard_limits_long_odoo_names() -> None:
+    keyboard = focus_keyboard(
+        [{"id": 4, "name": "Очень длинное название задачи " * 10}],
+        set(),
+    )
+
+    assert len(keyboard.inline_keyboard[0][0].text.encode("utf-8")) <= 56
