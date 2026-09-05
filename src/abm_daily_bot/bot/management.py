@@ -3,12 +3,19 @@ from datetime import date, datetime, timedelta
 from html import escape
 from zoneinfo import ZoneInfo
 
-from aiogram import Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy import func, select
 
-from abm_daily_bot.bot.keyboards import scheduled_action_keyboard
+from abm_daily_bot.bot.keyboards import (
+    invite_role_keyboard,
+    main_menu_keyboard,
+    manager_menu_keyboard,
+    scheduled_action_keyboard,
+)
 from abm_daily_bot.config import Settings, get_settings
 from abm_daily_bot.db.models import (
     AIAdvice,
@@ -47,6 +54,11 @@ ROLE_LABELS = {
 }
 
 
+class InviteStates(StatesGroup):
+    odoo_user = State()
+    role = State()
+
+
 def parse_telegram_ids(*values: str) -> set[int]:
     result: set[int] = set()
     for value in values:
@@ -58,6 +70,24 @@ def parse_telegram_ids(*values: str) -> set[int]:
 
 def manager_ids(settings: Settings) -> set[int]:
     return parse_telegram_ids(settings.pm_telegram_ids, settings.tech_lead_telegram_ids)
+
+
+async def telegram_user_is_manager(telegram_user_id: int, settings: Settings) -> bool:
+    if telegram_user_id in manager_ids(settings):
+        return True
+    try:
+        session_factory = build_session_factory(settings.database_url)
+        async with session_scope(session_factory) as session:
+            role = await session.scalar(
+                select(User.role).where(
+                    User.telegram_user_id == telegram_user_id,
+                    User.is_active.is_(True),
+                )
+            )
+        return role in {UserRole.PM, UserRole.TECH_LEAD}
+    except Exception:
+        logger.exception("Failed to check Telegram manager role")
+        return False
 
 
 def command_task_id(text: str | None) -> int | None:
@@ -109,22 +139,8 @@ def is_acceptance_test_task(name: object) -> bool:
 
 
 async def require_manager(message: Message, settings: Settings) -> bool:
-    if message.from_user and message.from_user.id in manager_ids(settings):
+    if message.from_user and await telegram_user_is_manager(message.from_user.id, settings):
         return True
-    if message.from_user:
-        try:
-            session_factory = build_session_factory(settings.database_url)
-            async with session_scope(session_factory) as session:
-                role = await session.scalar(
-                    select(User.role).where(
-                        User.telegram_user_id == message.from_user.id,
-                        User.is_active.is_(True),
-                    )
-                )
-            if role in {UserRole.PM, UserRole.TECH_LEAD}:
-                return True
-        except Exception:
-            logger.exception("Failed to check Telegram manager role")
     await message.answer("Команда доступна только PM и техлиду.")
     return False
 
@@ -155,11 +171,7 @@ def health_report_text(
     )
 
 
-@router.message(Command("health"))
-async def health(message: Message) -> None:
-    settings = get_settings()
-    if not await require_manager(message, settings):
-        return
+async def build_live_health_report(settings: Settings) -> str:
     database_ok = False
     active_users = pending_outbox = failed_outbox = 0
     try:
@@ -198,17 +210,45 @@ async def health(message: Message) -> None:
         logger.exception("Health check failed for Odoo")
         odoo_ok = False
 
-    await message.answer(
-        health_report_text(
-            database_ok=database_ok,
-            odoo_ok=odoo_ok,
-            active_users=active_users,
-            pending_outbox=pending_outbox,
-            failed_outbox=failed_outbox,
-            ai_configured=bool(AIAdviceService.configured_provider(settings)),
-            scope=settings.odoo_scope_label,
-            ai_provider=AIAdviceService.configured_provider(settings),
+    return health_report_text(
+        database_ok=database_ok,
+        odoo_ok=odoo_ok,
+        active_users=active_users,
+        pending_outbox=pending_outbox,
+        failed_outbox=failed_outbox,
+        ai_configured=bool(AIAdviceService.configured_provider(settings)),
+        scope=settings.odoo_scope_label,
+        ai_provider=AIAdviceService.configured_provider(settings),
+    )
+
+
+@router.message(Command("health"))
+async def health(message: Message) -> None:
+    settings = get_settings()
+    if not await require_manager(message, settings):
+        return
+    await message.answer(await build_live_health_report(settings))
+
+
+async def build_profile_text(
+    settings: Settings,
+    *,
+    telegram_user_id: int,
+    telegram_name: str,
+) -> str:
+    session_factory = build_session_factory(settings.database_url)
+    async with session_scope(session_factory) as session:
+        user = await session.scalar(
+            select(User).where(User.telegram_user_id == telegram_user_id)
         )
+    if not user:
+        return "Telegram пока не связан с Odoo. Нужна персональная ссылка от PM."
+    return (
+        "<strong>Твой профиль</strong>\n"
+        f"Telegram: {escape(telegram_name)}\n"
+        f"Odoo user ID: {user.odoo_user_id}\n"
+        f"Роль: {ROLE_LABELS[user.role]}\n"
+        f"Область: {escape(settings.odoo_scope_label or 'Odoo')}"
     )
 
 
@@ -218,39 +258,25 @@ async def whoami(message: Message) -> None:
     if not message.from_user:
         return
     try:
-        session_factory = build_session_factory(settings.database_url)
-        async with session_scope(session_factory) as session:
-            user = await session.scalar(
-                select(User).where(User.telegram_user_id == message.from_user.id)
-            )
+        text = await build_profile_text(
+            settings,
+            telegram_user_id=message.from_user.id,
+            telegram_name=message.from_user.full_name,
+        )
     except Exception:  # noqa: BLE001
         await message.answer("Не удалось проверить профиль. Попробуй ещё раз через минуту.")
         return
-    if not user:
-        await message.answer("Telegram пока не связан с Odoo. Нужна персональная ссылка от PM.")
-        return
-    await message.answer(
-        "<strong>Твой профиль</strong>\n"
-        f"Telegram: {escape(message.from_user.full_name)}\n"
-        f"Odoo user ID: {user.odoo_user_id}\n"
-        f"Роль: {ROLE_LABELS[user.role]}\n"
-        f"Область: {escape(settings.odoo_scope_label or 'Odoo')}"
-    )
+    await message.answer(text)
 
 
-@router.message(Command("invite"))
-async def invite_user(message: Message) -> None:
+async def issue_invitation(
+    message: Message,
+    *,
+    query: str,
+    role: UserRole,
+    issuer_telegram_user_id: int,
+) -> None:
     settings = get_settings()
-    if not await require_manager(message, settings):
-        return
-    request = parse_invite_request(message.text)
-    if not request:
-        await message.answer(
-            "Формат: <code>/invite сотрудник@company.ru member</code>\n"
-            "Роли: <code>member</code>, <code>pm</code>, <code>tech_lead</code>."
-        )
-        return
-    query, role = request
     try:
         matches = await OdooClient(settings).search_users(query)
     except Exception:
@@ -276,7 +302,7 @@ async def invite_user(message: Message) -> None:
         session_factory = build_session_factory(settings.database_url)
         async with session_scope(session_factory) as session:
             issuer = await session.scalar(
-                select(User).where(User.telegram_user_id == message.from_user.id)
+                select(User).where(User.telegram_user_id == issuer_telegram_user_id)
             )
             existing = await session.scalar(
                 select(User).where(User.odoo_user_id == int(odoo_user["id"]))
@@ -307,6 +333,27 @@ async def invite_user(message: Message) -> None:
         "Действует 7 дней и закрепляется за первым Telegram-аккаунтом.\n\n"
         f'<a href="{escape(link, quote=True)}">Подключить Telegram к Odoo</a>\n\n'
         "Перешли это сообщение только указанному сотруднику."
+    )
+
+
+@router.message(Command("invite"))
+async def invite_user(message: Message) -> None:
+    settings = get_settings()
+    if not await require_manager(message, settings) or not message.from_user:
+        return
+    request = parse_invite_request(message.text)
+    if not request:
+        await message.answer(
+            "Формат: <code>/invite сотрудник@company.ru member</code>\n"
+            "Роли: <code>member</code>, <code>pm</code>, <code>tech_lead</code>."
+        )
+        return
+    query, role = request
+    await issue_invitation(
+        message,
+        query=query,
+        role=role,
+        issuer_telegram_user_id=message.from_user.id,
     )
 
 
@@ -536,35 +583,35 @@ async def task_status(message: Message) -> None:
     await message.answer("\n".join(lines))
 
 
-@router.message(Command("deadlines"))
-async def deadlines(message: Message) -> None:
-    settings = get_settings()
-    if not await require_manager(message, settings):
-        return
+async def build_deadlines_report(settings: Settings) -> str:
     today = datetime.now(ZoneInfo(settings.timezone)).date()
     end = today + timedelta(days=6)
-    try:
-        tasks = await OdooClient(settings).search_deadlines(today.isoformat(), end.isoformat())
-    except Exception:
-        logger.exception("Failed to load deadlines from Odoo")
-        await message.answer("Не удалось получить дедлайны. Попробуй через минуту.")
-        return
+    tasks = await OdooClient(settings).search_deadlines(today.isoformat(), end.isoformat())
     if not tasks:
-        await message.answer("На ближайшие семь дней дедлайнов нет.")
-        return
+        return "На ближайшие семь дней дедлайнов нет."
     lines = ["<strong>Дедлайны на 7 дней</strong>"]
     for task in tasks:
         lines.append(
             f"{escape(str(task.get('date_deadline') or '-'))}: #{task['id']} {escape(task['name'])}"
         )
-    await message.answer("\n".join(lines))
+    return "\n".join(lines)
 
 
-@router.message(Command("remind"))
-async def remind_non_responders(message: Message) -> None:
+@router.message(Command("deadlines"))
+async def deadlines(message: Message) -> None:
     settings = get_settings()
     if not await require_manager(message, settings):
         return
+    try:
+        text = await build_deadlines_report(settings)
+    except Exception:
+        logger.exception("Failed to load deadlines from Odoo")
+        await message.answer("Не удалось получить дедлайны. Попробуй через минуту.")
+        return
+    await message.answer(text)
+
+
+async def send_daily_reminders(bot: Bot, settings: Settings) -> tuple[int, int]:
     today = datetime.now(ZoneInfo(settings.timezone)).date()
     session_factory = build_session_factory(settings.database_url)
     async with session_scope(session_factory) as session:
@@ -578,7 +625,7 @@ async def remind_non_responders(message: Message) -> None:
     sent = 0
     for user in missing:
         try:
-            await message.bot.send_message(
+            await bot.send_message(
                 user.telegram_user_id,
                 "Напоминание: сегодня ещё нет ответа по дейли.",
                 reply_markup=scheduled_action_keyboard("daily", "Ответить на дейли"),
@@ -587,7 +634,197 @@ async def remind_non_responders(message: Message) -> None:
         except Exception:
             logger.exception("Failed to send daily reminder to Telegram user %s", user.id)
             continue
-    await message.answer(f"Напоминание отправлено: {sent} из {len(missing)}.")
+    return sent, len(missing)
+
+
+@router.message(Command("remind"))
+async def remind_non_responders(message: Message) -> None:
+    settings = get_settings()
+    if not await require_manager(message, settings):
+        return
+    sent, total = await send_daily_reminders(message.bot, settings)
+    await message.answer(f"Напоминание отправлено: {sent} из {total}.")
+
+
+async def allow_manager_callback(callback: CallbackQuery, settings: Settings) -> bool:
+    if await telegram_user_is_manager(callback.from_user.id, settings):
+        await callback.answer()
+        return True
+    await callback.answer("Доступно только PM и техлиду", show_alert=True)
+    return False
+
+
+@router.callback_query(F.data == "menu:profile")
+async def profile_from_menu(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if not isinstance(callback.message, Message):
+        return
+    try:
+        text = await build_profile_text(
+            get_settings(),
+            telegram_user_id=callback.from_user.id,
+            telegram_name=callback.from_user.full_name,
+        )
+    except Exception:
+        logger.exception("Failed to load profile from menu")
+        text = "Не удалось проверить профиль. Попробуй ещё раз через минуту."
+    await callback.message.answer(text)
+
+
+@router.callback_query(F.data == "menu:home")
+async def home_from_menu(callback: CallbackQuery) -> None:
+    settings = get_settings()
+    is_manager = await telegram_user_is_manager(callback.from_user.id, settings)
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await callback.message.answer(
+            "<strong>Главное меню</strong>\nВыбери действие:",
+            reply_markup=main_menu_keyboard(is_manager=is_manager),
+        )
+
+
+@router.callback_query(F.data == "menu:manager")
+async def manager_panel(callback: CallbackQuery) -> None:
+    settings = get_settings()
+    if not await allow_manager_callback(callback, settings):
+        return
+    if isinstance(callback.message, Message):
+        await callback.message.answer(
+            "<strong>Панель PM</strong>\nСводка и управление командой:",
+            reply_markup=manager_menu_keyboard(),
+        )
+
+
+@router.callback_query(F.data == "menu:status")
+async def team_status_from_menu(callback: CallbackQuery) -> None:
+    settings = get_settings()
+    if not await allow_manager_callback(callback, settings):
+        return
+    if not isinstance(callback.message, Message):
+        return
+    try:
+        await callback.message.answer(await build_digest(settings))
+    except Exception:
+        logger.exception("Failed to build team status from menu")
+        await callback.message.answer("Не удалось получить статус. Попробуй через минуту.")
+
+
+@router.callback_query(F.data == "menu:deadlines")
+async def deadlines_from_menu(callback: CallbackQuery) -> None:
+    settings = get_settings()
+    if not await allow_manager_callback(callback, settings):
+        return
+    if not isinstance(callback.message, Message):
+        return
+    try:
+        await callback.message.answer(await build_deadlines_report(settings))
+    except Exception:
+        logger.exception("Failed to load deadlines from menu")
+        await callback.message.answer("Не удалось получить дедлайны. Попробуй через минуту.")
+
+
+@router.callback_query(F.data.in_({"menu:digest:day", "menu:digest:week"}))
+async def digest_from_menu(callback: CallbackQuery) -> None:
+    settings = get_settings()
+    if not await allow_manager_callback(callback, settings):
+        return
+    if not isinstance(callback.message, Message):
+        return
+    try:
+        await callback.message.answer(
+            await build_digest(settings, weekly=callback.data == "menu:digest:week")
+        )
+    except Exception:
+        logger.exception("Failed to build digest from menu")
+        await callback.message.answer("Не удалось собрать дайджест. Попробуй через минуту.")
+
+
+@router.callback_query(F.data == "menu:remind")
+async def remind_from_menu(callback: CallbackQuery) -> None:
+    settings = get_settings()
+    if not await allow_manager_callback(callback, settings):
+        return
+    if not isinstance(callback.message, Message):
+        return
+    try:
+        sent, total = await send_daily_reminders(callback.bot, settings)
+    except Exception:
+        logger.exception("Failed to send reminders from menu")
+        await callback.message.answer("Не удалось отправить напоминания. Попробуй через минуту.")
+        return
+    await callback.message.answer(f"Напоминание отправлено: {sent} из {total}.")
+
+
+@router.callback_query(F.data == "menu:health")
+async def health_from_menu(callback: CallbackQuery) -> None:
+    settings = get_settings()
+    if not await allow_manager_callback(callback, settings):
+        return
+    if isinstance(callback.message, Message):
+        await callback.message.answer(await build_live_health_report(settings))
+
+
+@router.callback_query(F.data == "menu:invite")
+async def invite_help_from_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    settings = get_settings()
+    if not await allow_manager_callback(callback, settings):
+        return
+    if isinstance(callback.message, Message):
+        await state.set_state(InviteStates.odoo_user)
+        await callback.message.answer(
+            "<strong>Подключение сотрудника</strong>\n"
+            "Пришли рабочую почту сотрудника или точный Odoo ID."
+        )
+
+
+@router.message(InviteStates.odoo_user, F.text)
+async def invite_user_from_menu(message: Message, state: FSMContext) -> None:
+    settings = get_settings()
+    if not await require_manager(message, settings):
+        await state.clear()
+        return
+    query = (message.text or "").strip()
+    if not query or query.startswith("/"):
+        await message.answer("Пришли рабочую почту или числовой Odoo ID.")
+        return
+    await state.update_data(invite_query=query)
+    await state.set_state(InviteStates.role)
+    await message.answer("Какую роль выдать?", reply_markup=invite_role_keyboard())
+
+
+@router.callback_query(InviteStates.role, F.data.startswith("invite:role:"))
+async def invite_role_from_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    settings = get_settings()
+    if not await allow_manager_callback(callback, settings):
+        await state.clear()
+        return
+    if not isinstance(callback.message, Message) or not callback.data:
+        return
+    role_value = callback.data.rsplit(":", maxsplit=1)[-1]
+    try:
+        role = UserRole(role_value)
+    except ValueError:
+        await callback.message.answer("Неизвестная роль. Начни подключение заново.")
+        await state.clear()
+        return
+    data = await state.get_data()
+    await state.clear()
+    await issue_invitation(
+        callback.message,
+        query=str(data["invite_query"]),
+        role=role,
+        issuer_telegram_user_id=callback.from_user.id,
+    )
+
+
+@router.callback_query(InviteStates.role, F.data == "invite:cancel")
+async def cancel_invite_from_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer("Подключение отменено")
+    await state.clear()
+    if isinstance(callback.message, Message):
+        await callback.message.answer(
+            "<strong>Панель PM</strong>", reply_markup=manager_menu_keyboard()
+        )
 
 
 @router.message(Command("test_reopen"))
@@ -639,3 +876,4 @@ async def test_reopen(message: Message) -> None:
     await message.answer(
         f"Тестовая задача #{task_id} снова открыта на этапе «{stage_name}». Теперь отправь /daily."
     )
+
