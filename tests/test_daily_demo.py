@@ -17,9 +17,14 @@ from abm_daily_bot.bot.daily import (
 
 
 def test_stage_buttons_use_clear_visual_labels() -> None:
-    assert stage_button_label("К выполнению") == "○ К выполнению"
-    assert stage_button_label("В работе") == "▶ В работе"
-    assert stage_button_label("Готово") == "✓ Готово"
+    assert stage_button_label("К выполнению") == "📥 К выполнению"
+    assert stage_button_label("В работе") == "🔵 В работе"
+    assert stage_button_label("Готово") == "✅ Готово"
+    assert stage_button_label("Planing") == "📝 Planing"
+    assert stage_button_label("ASAP") == "⚡ ASAP"
+    assert stage_button_label("DOING") == "🔵 DOING"
+    assert stage_button_label("TEST") == "🧪 TEST"
+    assert stage_button_label("DONE") == "✅ DONE"
 
 
 def test_optional_http_url_accepts_complete_links_and_skip() -> None:

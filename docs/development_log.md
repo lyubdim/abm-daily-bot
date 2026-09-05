@@ -1,5 +1,11 @@
 # Development Log
 
+## 2026-09-05: production-кнопки этапов
+
+- Подтверждено отсутствие дублей после перезапуска одного polling instance.
+- Все шесть этапов production-проекта получили устойчивые Telegram-иконки.
+- Production preview больше не показывает локальную команду `/test_reopen`.
+
 ## 2026-09-05: первый видимый production E2E
 
 - Telegram `/daily` показал production task `597` из связанного портфеля.

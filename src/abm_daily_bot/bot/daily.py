@@ -127,12 +127,25 @@ def status_keyboard(stages: list[dict[str, Any]] | None = None) -> InlineKeyboar
 
 def stage_button_label(name: str) -> str:
     normalized = name.strip().lower()
-    if normalized in {"к выполнению", "to do", "todo", "backlog"}:
-        return f"○ {name}"
-    if normalized in {"в работе", "in progress", "doing"}:
-        return f"▶ {name}"
-    if normalized in {"готово", "done", "закрыто", "closed"}:
-        return f"✓ {name}"
+    icons = {
+        "к выполнению": "📥",
+        "to do": "📥",
+        "todo": "📥",
+        "backlog": "📥",
+        "planing": "📝",
+        "planning": "📝",
+        "asap": "⚡",
+        "в работе": "🔵",
+        "in progress": "🔵",
+        "doing": "🔵",
+        "test": "🧪",
+        "готово": "✅",
+        "done": "✅",
+        "закрыто": "✅",
+        "closed": "✅",
+    }
+    if icon := icons.get(normalized):
+        return f"{icon} {name}"
     return name
 
 
