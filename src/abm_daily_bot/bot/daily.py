@@ -127,26 +127,25 @@ def status_keyboard(stages: list[dict[str, Any]] | None = None) -> InlineKeyboar
 
 def stage_button_label(name: str) -> str:
     normalized = name.strip().lower()
-    icons = {
-        "к выполнению": "📥",
-        "to do": "📥",
-        "todo": "📥",
-        "backlog": "📥",
-        "planing": "📝",
-        "planning": "📝",
-        "asap": "⚡",
-        "в работе": "🔵",
-        "in progress": "🔵",
-        "doing": "🔵",
-        "test": "🧪",
-        "готово": "✅",
-        "done": "✅",
-        "закрыто": "✅",
-        "closed": "✅",
+    labels = {
+        "к выполнению": "📥 К выполнению",
+        "to do": "📥 К выполнению",
+        "todo": "📥 К выполнению",
+        "backlog": "📥 В очереди",
+        "planing": "📝 Планирование",
+        "planning": "📝 Планирование",
+        "asap": "⚡ Срочно",
+        "в работе": "🔵 В работе",
+        "in progress": "🔵 В работе",
+        "doing": "🔵 В работе",
+        "oing": "🔵 В работе",
+        "test": "🧪 Тестирование",
+        "готово": "✅ Готово",
+        "done": "✅ Готово",
+        "закрыто": "✅ Готово",
+        "closed": "✅ Готово",
     }
-    if icon := icons.get(normalized):
-        return f"{icon} {name}"
-    return name
+    return labels.get(normalized, name)
 
 
 def normalize_odoo_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:

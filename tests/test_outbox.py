@@ -45,3 +45,25 @@ async def test_deliver_remembers_created_chatter_message_id() -> None:
     assert item.state == OutboxState.SENT
     assert item.remote_record_id == 321
 
+
+async def test_deliver_remembers_direct_mail_message_id() -> None:
+    odoo = RecordingOdoo(654)
+    service = OdooOutboxService(odoo)  # type: ignore[arg-type]
+    item = SimpleNamespace(
+        model="mail.message",
+        method="create",
+        arguments=[{"model": "project.task", "res_id": 597, "body": "status"}],
+        keyword_arguments={},
+        attempt_count=0,
+        state=OutboxState.PENDING,
+        next_attempt_at=None,
+        sent_at=None,
+        last_error=None,
+        remote_record_id=None,
+    )
+
+    await service._deliver(item, now=SimpleNamespace())  # type: ignore[arg-type]
+
+    assert item.state == OutboxState.SENT
+    assert item.remote_record_id == 654
+

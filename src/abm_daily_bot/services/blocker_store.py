@@ -96,14 +96,15 @@ async def queue_blocker_odoo_sync(
     await outbox.enqueue(
         session,
         idempotency_key=f"blocker:{blocker.id}:comment",
-        model="project.task",
-        method="message_post",
-        arguments=[[blocker.odoo_task_id]],
-        keyword_arguments={
-            "body": comment,
-            "body_is_html": True,
-            "message_type": "comment",
-            "subtype_xmlid": "mail.mt_comment",
-        },
+        model="mail.message",
+        method="create",
+        arguments=[
+            {
+                "model": "project.task",
+                "res_id": blocker.odoo_task_id,
+                "body": comment,
+                "message_type": "comment",
+            }
+        ],
     )
 

@@ -31,12 +31,18 @@ class OdooOutboxService:
             select(OdooOutbox).where(OdooOutbox.idempotency_key == idempotency_key)
         )
         if existing:
-            if method == "message_post" and existing.remote_record_id:
+            creates_chatter = method == "message_post" or (
+                model == "mail.message" and method == "create"
+            )
+            if creates_chatter and existing.remote_record_id:
                 existing.model = "mail.message"
                 existing.method = "write"
+                body = (keyword_arguments or {}).get("body")
+                if body is None and arguments and isinstance(arguments[0], dict):
+                    body = arguments[0].get("body", "")
                 existing.arguments = [
                     [existing.remote_record_id],
-                    {"body": (keyword_arguments or {}).get("body", "")},
+                    {"body": body or ""},
                 ]
                 existing.keyword_arguments = {}
             else:
@@ -99,7 +105,10 @@ class OdooOutboxService:
             item.state = OutboxState.FAILED
             item.last_error = str(exc)[:4000]
         else:
-            if item.method == "message_post" and isinstance(result, int):
+            creates_chatter = item.method == "message_post" or (
+                item.model == "mail.message" and item.method == "create"
+            )
+            if creates_chatter and isinstance(result, int):
                 item.remote_record_id = result
             item.state = OutboxState.SENT
             item.sent_at = now

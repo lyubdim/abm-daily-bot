@@ -116,15 +116,16 @@ async def queue_daily_odoo_sync(
     await outbox.enqueue(
         session,
         idempotency_key=f"{key_prefix}:comment",
-        model="project.task",
-        method="message_post",
-        arguments=[[task_id]],
-        keyword_arguments={
-            "body": comment,
-            "body_is_html": True,
-            "message_type": "comment",
-            "subtype_xmlid": "mail.mt_comment",
-        },
+        model="mail.message",
+        method="create",
+        arguments=[
+            {
+                "model": "project.task",
+                "res_id": task_id,
+                "body": comment,
+                "message_type": "comment",
+            }
+        ],
     )
 
 
