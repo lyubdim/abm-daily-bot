@@ -53,6 +53,16 @@ async def run_polling() -> None:
         token=settings.telegram_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    await bot.set_my_description(
+        description=(
+            "Дейли ABM Club: показывает ваши задачи из Odoo, собирает прогресс, "
+            "обновляет этапы, фиксирует ссылки и помогает снять затруднения. "
+            "Для начала откройте персональную ссылку от PM."
+        )
+    )
+    await bot.set_my_short_description(
+        short_description="Статусы по задачам ABM Club из Odoo прямо в Telegram."
+    )
     await bot.set_my_commands(
         [
             BotCommand(command="daily", description="Пройти дейли по задачам"),
