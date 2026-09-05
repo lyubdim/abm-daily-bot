@@ -17,3 +17,13 @@ def test_individual_odoo_mapping_overrides_test_default() -> None:
     assert settings.odoo_user_id_for(1002) == 13
     assert settings.odoo_user_id_for(9999) == 94
 
+
+def test_project_scope_is_configurable() -> None:
+    settings = Settings(
+        odoo_project_ids=[1329, 1330, 1335, 1336],
+        odoo_scope_label="PORTF-008 · Управление клубами",
+    )
+
+    assert settings.odoo_project_ids == [1329, 1330, 1335, 1336]
+    assert settings.odoo_scope_label.startswith("PORTF-008")
+

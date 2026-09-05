@@ -141,10 +141,15 @@ class OdooClient:
         return await asyncio.to_thread(execute_kw)
 
     async def search_open_tasks_for_user(self, odoo_user_id: int) -> list[dict[str, Any]]:
+        domain: list[list[Any]] = [
+            ["user_ids", "in", [odoo_user_id]],
+            ["is_closed", "=", False],
+        ]
+        self._apply_project_scope(domain)
         return await self.call(
             "project.task",
             "search_read",
-            [["user_ids", "in", [odoo_user_id]], ["is_closed", "=", False]],
+            domain,
             fields=[
                 "name",
                 "project_id",
@@ -159,6 +164,7 @@ class OdooClient:
 
     async def search_open_tasks(self, name_query: str | None = None) -> list[dict[str, Any]]:
         domain: list[list[Any]] = [["is_closed", "=", False]]
+        self._apply_project_scope(domain)
         if name_query:
             domain.append(["name", "ilike", name_query])
         options: dict[str, Any] = {
@@ -181,6 +187,10 @@ class OdooClient:
             **options,
         )
 
+    def _apply_project_scope(self, domain: list[list[Any]]) -> None:
+        if self.settings.odoo_project_ids:
+            domain.append(["project_id", "in", self.settings.odoo_project_ids])
+
     async def search_task_stages(self, project_id: int) -> list[dict[str, Any]]:
         stages = await self.call(
             "project.task.type",
@@ -200,14 +210,16 @@ class OdooClient:
         )
 
     async def search_deadlines(self, date_from: str, date_to: str) -> list[dict[str, Any]]:
+        domain: list[list[Any]] = [
+            ["is_closed", "=", False],
+            ["date_deadline", ">=", date_from],
+            ["date_deadline", "<=", date_to],
+        ]
+        self._apply_project_scope(domain)
         return await self.call(
             "project.task",
             "search_read",
-            [
-                ["is_closed", "=", False],
-                ["date_deadline", ">=", date_from],
-                ["date_deadline", "<=", date_to],
-            ],
+            domain,
             fields=["name", "project_id", "user_ids", "stage_id", "date_deadline"],
             order="date_deadline asc",
         )

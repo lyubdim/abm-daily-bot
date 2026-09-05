@@ -98,7 +98,7 @@ def status_keyboard(stages: list[dict[str, Any]] | None = None) -> InlineKeyboar
     status_rows = [
         [
             InlineKeyboardButton(
-                text=str(stage["name"]),
+                text=stage_button_label(str(stage["name"])),
                 callback_data=f"daily:stage:{stage['id']}",
             )
             for stage in available_stages[index : index + 2]
@@ -110,19 +110,30 @@ def status_keyboard(stages: list[dict[str, Any]] | None = None) -> InlineKeyboar
         + [
             [
                 InlineKeyboardButton(
-                    text="Есть затруднение",
+                    text="🚧 Есть затруднение",
                     callback_data="daily:blocker",
                 ),
-                InlineKeyboardButton(text="Пропустить", callback_data="daily:skip"),
+                InlineKeyboardButton(text="Пропустить →", callback_data="daily:skip"),
             ],
             [
                 InlineKeyboardButton(
-                    text="Пропустить остальные",
+                    text="Пропустить остальные →",
                     callback_data="daily:skip_rest",
                 )
             ],
         ]
     )
+
+
+def stage_button_label(name: str) -> str:
+    normalized = name.strip().lower()
+    if normalized in {"к выполнению", "to do", "todo", "backlog"}:
+        return f"○ {name}"
+    if normalized in {"в работе", "in progress", "doing"}:
+        return f"▶ {name}"
+    if normalized in {"готово", "done", "закрыто", "closed"}:
+        return f"✓ {name}"
+    return name
 
 
 def normalize_odoo_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
@@ -275,21 +286,27 @@ async def ask_current_task(message: Message, state: FSMContext) -> None:
 
     task = tasks[task_index]
     task_url = task.get("url")
-    task_link = ""
+    task_actions = None
     if task_url:
-        task_link = (
-            f'<a href="{escape(str(task_url), quote=True)}">Открыть в Odoo</a>\n'
+        task_actions = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="Открыть в Odoo ↗",
+                        url=str(task_url),
+                    )
+                ]
+            ]
         )
     await state.set_state(DailyStates.progress)
     await message.answer(
-        f"Задача {task_index + 1}/{len(tasks)}\n"
-        f"{escape(str(task['name']))}\n"
-        f"Проект: {escape(str(task['project']))}\n"
-        f"Дедлайн: {escape(str(task['deadline']))}\n"
-        f"Этап Odoo: {escape(str(task.get('stage') or 'не указан'))}\n"
-        f"Состояние Odoo: {escape(STATE_LABELS.get(task.get('state'), 'не указано'))}\n"
-        f"{task_link}\n"
-        "Что сделал / какой прогресс? Можно написать «без изменений»."
+        f"<b>Задача {task_index + 1} из {len(tasks)}</b>\n"
+        f"<b>{escape(str(task['name']))}</b>\n\n"
+        f"📁 {escape(str(task['project']))}\n"
+        f"📅 Дедлайн: {escape(str(task['deadline']))}\n"
+        f"🏷 Этап: {escape(str(task.get('stage') or 'не указан'))}\n\n"
+        "Что сделал или какой прогресс? Можно написать «без изменений».",
+        reply_markup=task_actions,
     )
 
 
@@ -382,7 +399,8 @@ async def begin_daily(message: Message, state: FSMContext) -> None:
             task = normalize_odoo_task(raw_task, str(settings.odoo_base_url))
             task["available_stages"] = stages_by_project.get(task["project_id"], [])
             tasks.append(task)
-        mode_message = "Начинаем дейли по задачам из тестового Odoo."
+        scope = settings.odoo_scope_label or "Odoo"
+        mode_message = f"Начинаем дейли · {escape(scope)}"
 
     if not tasks:
         await message.answer("Открытых задач, назначенных на тебя, не найдено.")

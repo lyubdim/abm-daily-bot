@@ -9,10 +9,17 @@ from abm_daily_bot.bot.daily import (
     format_odoo_comment,
     normalize_odoo_task,
     optional_http_url,
+    stage_button_label,
     stage_is_done,
     status_keyboard,
     task_advice_context,
 )
+
+
+def test_stage_buttons_use_clear_visual_labels() -> None:
+    assert stage_button_label("К выполнению") == "○ К выполнению"
+    assert stage_button_label("В работе") == "▶ В работе"
+    assert stage_button_label("Готово") == "✓ Готово"
 
 
 def test_optional_http_url_accepts_complete_links_and_skip() -> None:

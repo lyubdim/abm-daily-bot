@@ -55,6 +55,14 @@ API discovery успешно пройден:
 ## Production
 
 - Dashboard URL: `https://abmapex.ru/odoo/action-1487/project.portfolio/project.portfolio/14/project.project`
+- Portfolio: `PORTF-008 Управление клубами`, record ID `14`.
+- Current project IDs discovered read-only from the portfolio: `1329`, `1330`, `1335`,
+  `1336` (67 tasks total in the portfolio cards at discovery time).
+- Configure `ODOO_PROJECT_IDS=[1329,1330,1335,1336]` so daily, weekly, deadlines,
+  PM search and assignment polling stay inside the linked dashboard.
+- The current production user can view the portfolio and task boards, but opening a
+  project form reports missing read access to `res.users` in the relevant company.
+  A dedicated integration user must receive this access before production writes.
 - Версия: Odoo `18.0+e-20250218`
 - XML-RPC доступен: `https://abmapex.ru/xmlrpc/2/common`
 - Public database list закрыт: `/web/database/list` возвращает `403 Forbidden`
