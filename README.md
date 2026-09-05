@@ -113,6 +113,10 @@ TELEGRAM_BOT_TOKEN=<token> docker compose up --build bot
 На Windows для тестового запуска можно открыть
 [`scripts/start-test.cmd`](scripts/start-test.cmd). Скрипт проверит Docker, соберёт
 актуальный образ, запустит PostgreSQL и бота и покажет состояние контейнеров.
+
+Для согласованного сквозного теста с production Odoo используется локальный
+`scripts/start-prod-preview.cmd`. Секреты он берёт из исключённого из Git файла
+`.env.prod.local`; тестовая задача должна иметь префикс `[BOT TEST]`.
 При каждом контейнерном запуске `alembic upgrade head` автоматически приводит схему
 PostgreSQL к версии приложения до старта Telegram polling.
 

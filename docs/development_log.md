@@ -1,5 +1,12 @@
 # Development Log
 
+## 2026-09-05: production preview
+
+- Через production XML-RPC подтверждено чтение задач портфеля и права модели.
+- В проекте `1336` создана изолированная задача `[BOT TEST]`, назначенная test user.
+- Добавлен отдельный Windows-запуск production preview без копирования секретов.
+- Test stand и production Odoo используют разные локальные env-файлы.
+
 ## 2026-09-05: привязка к production-портфелю
 
 - В production подтверждён портфель `PORTF-008 Управление клубами` и четыре проекта.
