@@ -65,6 +65,7 @@ async def run_polling() -> None:
     )
     await bot.set_my_commands(
         [
+            BotCommand(command="menu", description="Открыть главное меню"),
             BotCommand(command="daily", description="Пройти дейли по задачам"),
             BotCommand(command="weekly", description="Выбрать фокус недели"),
             BotCommand(command="blockers", description="Открытые затруднения"),
@@ -116,3 +117,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
