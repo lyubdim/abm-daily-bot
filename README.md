@@ -103,6 +103,17 @@ TELEGRAM_INVITE_CODES={"private-random-code":{"odoo_user_id":105,"role":"pm"}}
 Ссылка имеет вид `https://t.me/abm_club_daily_bot?start=private-random-code`. После
 первого подключения тот же Odoo-профиль нельзя занять другим Telegram-аккаунтом.
 
+Это bootstrap-вариант для первого PM. Дальше PM создаёт приглашения без перезапуска:
+
+```text
+/invite employee@company.ru member
+/invite 105 tech_lead
+```
+
+Одноразовая ссылка действует 7 дней, а в PostgreSQL хранится только её SHA-256 хеш.
+Сотрудник проверяет свою привязку командой `/whoami`; `/daily` получает только задачи,
+где его Odoo user указан в `user_ids`. Пароли отдельных сотрудников боту не нужны.
+
 `ODOO_DEFAULT_USER_ID` предназначен только для одиночного тестового запуска.
 
 Ограничение задач связанным production-дашбордом:
@@ -173,4 +184,3 @@ API с контекстом задачи и недавними сообщени�
 Назначения задач отслеживаются fallback polling раз в минуту. После настройки
 публичного HTTPS endpoint его можно дополнить Odoo webhook без изменения Telegram UX.
 Для командного запуска используется индивидуальная карта Telegram ID в Odoo user ID.
-

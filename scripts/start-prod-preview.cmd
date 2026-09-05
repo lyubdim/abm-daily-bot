@@ -37,7 +37,7 @@ docker compose -p abm-daily-bot -f docker-compose.yml -f docker-compose.prod-pre
 echo.
 docker compose -p abm-daily-bot -f docker-compose.yml -f docker-compose.prod-preview.yml logs --tail 30 bot
 echo.
-echo Production preview is running. Open Telegram and send /daily.
+echo Production preview is running.
+echo First open your personal Telegram invitation, then send /whoami and /daily.
 echo Expected task: [BOT TEST] ABM Daily Bot production E2E, Odoo task 597.
 pause
-
