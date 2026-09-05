@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 cd /d "%~dp0.."
 
 if not exist ".env" (
@@ -22,8 +22,29 @@ if errorlevel 1 (
 )
 
 echo Starting ABM Daily Bot against production Odoo portfolio PORTF-008...
-docker compose -p abm-daily-bot -f docker-compose.yml down --remove-orphans >nul 2>&1
-docker compose -p abm-daily-bot --env-file .env --env-file .env.prod.local -f docker-compose.yml -f docker-compose.prod-preview.yml up -d --build postgres bot
+echo Building the new version before replacing the running container...
+docker compose -p abm-daily-bot --env-file .env --env-file .env.prod.local -f docker-compose.yml -f docker-compose.prod-preview.yml build bot
+if errorlevel 1 (
+  echo.
+  echo Docker Hub is unavailable. Trying the cached offline application image...
+  docker image inspect abm-daily-bot-bot:latest >nul 2>&1
+  if errorlevel 1 (
+    echo ERROR: Docker Hub is unavailable and no cached bot image was found.
+    echo Check the internet connection or VPN and launch this file again.
+    pause
+    exit /b 1
+  )
+  for /f "delims=" %%i in ('docker image inspect abm-daily-bot-bot:latest --format "{{.Id}}"') do set "CACHED_BOT_IMAGE=%%i"
+  docker build --pull=false --build-arg BASE_IMAGE=!CACHED_BOT_IMAGE! -f Dockerfile.offline -t abm-daily-bot-bot:latest .
+  if errorlevel 1 (
+    echo ERROR: cached offline build failed.
+    pause
+    exit /b 1
+  )
+)
+
+docker compose -p abm-daily-bot --env-file .env --env-file .env.prod.local -f docker-compose.yml -f docker-compose.prod-preview.yml up -d --no-build postgres
+docker compose -p abm-daily-bot --env-file .env --env-file .env.prod.local -f docker-compose.yml -f docker-compose.prod-preview.yml up -d --no-build --force-recreate bot
 if errorlevel 1 (
   echo ERROR: services failed to start.
   docker compose -p abm-daily-bot -f docker-compose.yml -f docker-compose.prod-preview.yml logs --tail 80 bot

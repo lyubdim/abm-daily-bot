@@ -44,4 +44,7 @@ jobs:
         run: alembic upgrade head
       - name: Build production image
         run: docker build -t abm-daily-bot:ci .
-
+      - name: Validate cached offline rebuild
+        run: >-
+          docker build --pull=false --build-arg BASE_IMAGE=abm-daily-bot:ci
+          -f Dockerfile.offline -t abm-daily-bot:offline-ci .

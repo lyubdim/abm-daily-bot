@@ -1,0 +1,14 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+USER root
+WORKDIR /app
+
+# The cached application image already contains Python and all dependencies.
+COPY src/abm_daily_bot /usr/local/lib/python3.12/site-packages/abm_daily_bot
+COPY alembic.ini ./
+COPY migrations ./migrations
+
+USER 10001:10001
+
+CMD ["sh", "-c", "alembic upgrade head && exec abm-bot"]
