@@ -1,5 +1,6 @@
 from abm_daily_bot.bot.management import (
     command_task_id,
+    health_report_text,
     parse_invite_request,
     parse_telegram_ids,
     preferred_open_stage,
@@ -44,3 +45,22 @@ def test_parse_invite_request_accepts_name_and_role() -> None:
 def test_parse_invite_request_requires_employee_query() -> None:
     assert parse_invite_request("/invite") is None
     assert parse_invite_request("/invite pm") is None
+
+
+def test_health_report_exposes_integration_state_without_secrets() -> None:
+    report = health_report_text(
+        database_ok=True,
+        odoo_ok=True,
+        active_users=3,
+        pending_outbox=1,
+        failed_outbox=0,
+        ai_configured=False,
+        scope="PORTF-008 · Управление клубами",
+    )
+
+    assert "PostgreSQL: доступна" in report
+    assert "Odoo API: авторизация работает" in report
+    assert "1 ожидают" in report
+    assert "локальный fallback" in report
+    assert "Подключено пользователей: 3" in report
+    assert "PORTF-008" in report

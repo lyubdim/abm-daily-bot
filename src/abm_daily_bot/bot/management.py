@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from abm_daily_bot.config import Settings, get_settings
 from abm_daily_bot.db.models import (
@@ -14,6 +14,8 @@ from abm_daily_bot.db.models import (
     Blocker,
     DailyAnswer,
     DailySummary,
+    OdooOutbox,
+    OutboxState,
     User,
     UserRole,
 )
@@ -106,6 +108,87 @@ async def require_manager(message: Message, settings: Settings) -> bool:
             logger.exception("Failed to check Telegram manager role")
     await message.answer("Команда доступна только PM и техлиду.")
     return False
+
+
+def health_report_text(
+    *,
+    database_ok: bool,
+    odoo_ok: bool,
+    active_users: int,
+    pending_outbox: int,
+    failed_outbox: int,
+    ai_configured: bool,
+    scope: str,
+) -> str:
+    status = lambda value: "✅" if value else "❌"
+    queue_ok = failed_outbox == 0
+    return (
+        "<strong>Состояние ABM Club Daily</strong>\n"
+        f"{status(database_ok)} PostgreSQL: доступна\n"
+        f"{status(odoo_ok)} Odoo API: авторизация работает\n"
+        f"{status(queue_ok)} Очередь Odoo: {pending_outbox} ожидают, "
+        f"{failed_outbox} требуют внимания\n"
+        f"{'✅' if ai_configured else '⚠️'} AI: "
+        f"{'подключён' if ai_configured else 'локальный fallback'}\n"
+        f"👥 Подключено пользователей: {active_users}\n"
+        f"📁 Область: {escape(scope or 'Odoo')}"
+    )
+
+
+@router.message(Command("health"))
+async def health(message: Message) -> None:
+    settings = get_settings()
+    if not await require_manager(message, settings):
+        return
+    database_ok = False
+    active_users = pending_outbox = failed_outbox = 0
+    try:
+        session_factory = build_session_factory(settings.database_url)
+        async with session_scope(session_factory) as session:
+            active_users = int(
+                await session.scalar(
+                    select(func.count()).select_from(User).where(User.is_active.is_(True))
+                )
+                or 0
+            )
+            pending_outbox = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(OdooOutbox)
+                    .where(OdooOutbox.state.in_([OutboxState.PENDING, OutboxState.RETRY]))
+                )
+                or 0
+            )
+            failed_outbox = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(OdooOutbox)
+                    .where(OdooOutbox.state == OutboxState.FAILED)
+                )
+                or 0
+            )
+        database_ok = True
+    except Exception:
+        logger.exception("Health check failed for PostgreSQL")
+
+    try:
+        await OdooClient(settings).authenticate()
+        odoo_ok = True
+    except Exception:
+        logger.exception("Health check failed for Odoo")
+        odoo_ok = False
+
+    await message.answer(
+        health_report_text(
+            database_ok=database_ok,
+            odoo_ok=odoo_ok,
+            active_users=active_users,
+            pending_outbox=pending_outbox,
+            failed_outbox=failed_outbox,
+            ai_configured=bool(settings.openai_api_key),
+            scope=settings.odoo_scope_label,
+        )
+    )
 
 
 @router.message(Command("whoami"))

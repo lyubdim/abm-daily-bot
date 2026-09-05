@@ -62,6 +62,7 @@ async def run_polling() -> None:
             BotCommand(command="status", description="Статус команды или задачи"),
             BotCommand(command="deadlines", description="Дедлайны на 7 дней"),
             BotCommand(command="digest", description="Дайджест для PM"),
+            BotCommand(command="health", description="Проверить интеграции (PM)"),
             BotCommand(command="invite", description="Подключить сотрудника (PM)"),
             BotCommand(command="cancel", description="Остановить текущий опрос"),
         ]
