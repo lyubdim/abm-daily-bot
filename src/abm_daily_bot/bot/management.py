@@ -103,6 +103,10 @@ def preferred_open_stage(stages: list[dict[str, object]]) -> dict[str, object] |
     )
 
 
+def is_acceptance_test_task(name: object) -> bool:
+    return str(name or "").strip().upper().startswith("[BOT TEST]")
+
+
 async def require_manager(message: Message, settings: Settings) -> bool:
     if message.from_user and message.from_user.id in manager_ids(settings):
         return True
@@ -611,6 +615,9 @@ async def test_reopen(message: Message) -> None:
             await message.answer("Тестовая задача не найдена.")
             return
         task = tasks[0]
+        if not is_acceptance_test_task(task.get("name")):
+            await message.answer("Эта команда работает только для задач с префиксом [BOT TEST].")
+            return
         if odoo_user_id not in task.get("user_ids", []):
             await message.answer("Задача не назначена текущему Odoo-пользователю.")
             return

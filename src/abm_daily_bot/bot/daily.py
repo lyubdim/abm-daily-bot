@@ -450,7 +450,9 @@ async def start(message: Message, state: FSMContext) -> None:
         )
         return
     test_command = (
-        "\n/test_reopen 4 — снова открыть тестовую задачу" if settings.app_env == "local" else ""
+        "\n/test_reopen &lt;ID&gt; — снова открыть тестовую задачу"
+        if settings.app_env == "local"
+        else ""
     )
     await message.answer(
         "<strong>ABM Club Daily</strong>\n"

@@ -4,6 +4,7 @@ from abm_daily_bot.bot.management import (
     command_task_id,
     digest_is_weekly,
     health_report_text,
+    is_acceptance_test_task,
     parse_invite_request,
     parse_telegram_ids,
     preferred_open_stage,
@@ -31,6 +32,11 @@ def test_digest_period_accepts_english_and_russian() -> None:
 def test_previous_workday_skips_weekend() -> None:
     assert previous_workday(date(2026, 9, 7)) == date(2026, 9, 4)
     assert previous_workday(date(2026, 9, 8)) == date(2026, 9, 7)
+
+
+def test_reopen_guard_accepts_only_isolated_bot_test_tasks() -> None:
+    assert is_acceptance_test_task("[BOT TEST] ABM Daily Bot production E2E") is True
+    assert is_acceptance_test_task("Рабочая задача команды") is False
 
 
 def test_preferred_open_stage_uses_in_progress_stage() -> None:
