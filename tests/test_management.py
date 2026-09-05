@@ -1,8 +1,10 @@
 from abm_daily_bot.bot.management import (
     command_task_id,
+    parse_invite_request,
     parse_telegram_ids,
     preferred_open_stage,
 )
+from abm_daily_bot.db.models import UserRole
 
 
 def test_parse_telegram_ids_combines_roles_and_ignores_invalid_values() -> None:
@@ -24,3 +26,21 @@ def test_preferred_open_stage_uses_in_progress_stage() -> None:
 
     assert preferred_open_stage(stages) == stages[2]
 
+
+def test_parse_invite_request_defaults_to_member() -> None:
+    assert parse_invite_request("/invite person@example.com") == (
+        "person@example.com",
+        UserRole.MEMBER,
+    )
+
+
+def test_parse_invite_request_accepts_name_and_role() -> None:
+    assert parse_invite_request("/invite Антон Кошелев pm") == (
+        "Антон Кошелев",
+        UserRole.PM,
+    )
+
+
+def test_parse_invite_request_requires_employee_query() -> None:
+    assert parse_invite_request("/invite") is None
+    assert parse_invite_request("/invite pm") is None

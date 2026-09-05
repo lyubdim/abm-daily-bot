@@ -58,9 +58,11 @@ async def run_polling() -> None:
             BotCommand(command="daily", description="Пройти дейли по задачам"),
             BotCommand(command="weekly", description="Выбрать фокус недели"),
             BotCommand(command="blockers", description="Открытые затруднения"),
+            BotCommand(command="whoami", description="Проверить профиль Odoo"),
             BotCommand(command="status", description="Статус команды или задачи"),
             BotCommand(command="deadlines", description="Дедлайны на 7 дней"),
             BotCommand(command="digest", description="Дайджест для PM"),
+            BotCommand(command="invite", description="Подключить сотрудника (PM)"),
             BotCommand(command="cancel", description="Остановить текущий опрос"),
         ]
     )
@@ -103,4 +105,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

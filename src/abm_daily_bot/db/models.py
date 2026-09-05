@@ -60,6 +60,22 @@ class User(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
+class TelegramInvite(TimestampMixin, Base):
+    __tablename__ = "telegram_invites"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    odoo_user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    odoo_display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, native_enum=False), default=UserRole.MEMBER, nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    used_by_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class TaskCache(TimestampMixin, Base):
     __tablename__ = "task_cache"
 
@@ -169,4 +185,3 @@ class PMDigestRun(TimestampMixin, Base):
     period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     recipient_telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-

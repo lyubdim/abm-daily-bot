@@ -224,6 +224,28 @@ class OdooClient:
             order="date_deadline asc",
         )
 
+    async def search_users(self, query: str, limit: int = 6) -> list[dict[str, Any]]:
+        value = query.strip()
+        if not value:
+            return []
+        if value.isdigit():
+            domain: list[Any] = [["id", "=", int(value)]]
+        else:
+            domain = [
+                "|",
+                "|",
+                ["name", "ilike", value],
+                ["login", "ilike", value],
+                ["email", "ilike", value],
+            ]
+        return await self.call(
+            "res.users",
+            "search_read",
+            domain,
+            fields=["name", "login", "email", "active"],
+            limit=limit,
+        )
+
     async def update_task_stage(self, task_id: int, stage_id: int) -> bool:
         return await self.call(
             "project.task",
@@ -268,4 +290,3 @@ class OdooClient:
             for message in reversed(messages)
             if (text := html_to_text(str(message.get("body") or "")))
         ]
-

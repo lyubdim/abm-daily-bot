@@ -32,6 +32,7 @@ from abm_daily_bot.services.daily_store import (
 )
 from abm_daily_bot.services.odoo_client import OdooClient
 from abm_daily_bot.services.outbox import OdooOutboxService
+from abm_daily_bot.services.telegram_invites import claim_telegram_invite
 
 router = Router(name="daily")
 
@@ -343,11 +344,33 @@ async def start(message: Message, state: FSMContext) -> None:
     settings = get_settings()
     payload = (message.text or "").partition(" ")[2].strip()
     invite = settings.telegram_invite_codes.get(payload) if payload else None
-    if payload and not invite:
-        await message.answer(
-            "Ссылка приглашения недействительна или устарела. Запроси новую у PM."
-        )
-        return
+    dynamic_invite_claimed = False
+    if payload and not invite and message.from_user:
+        try:
+            session_factory = build_session_factory(settings.database_url)
+            async with session_scope(session_factory) as session:
+                user, persistent_invite = await claim_telegram_invite(
+                    session,
+                    token=payload,
+                    telegram_user_id=message.from_user.id,
+                    telegram_display_name=message.from_user.full_name,
+                    legacy_bot_user_id=message.bot.id,
+                )
+            odoo_user_id = user.odoo_user_id
+            settings.telegram_odoo_user_map[message.from_user.id] = odoo_user_id
+            dynamic_invite_claimed = True
+            await message.answer(
+                "Готово: Telegram подключён к профилю Odoo "
+                f"«{escape(persistent_invite.odoo_display_name)}»."
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            await message.answer(f"Не удалось применить приглашение: {escape(str(exc))}")
+            return
+        except Exception:  # noqa: BLE001
+            await message.answer(
+                "Не удалось проверить приглашение. Попробуй ещё раз через минуту."
+            )
+            return
     if invite and message.from_user:
         try:
             odoo_user_id = int(invite["odoo_user_id"])
@@ -367,7 +390,7 @@ async def start(message: Message, state: FSMContext) -> None:
             return
         settings.telegram_odoo_user_map[message.from_user.id] = odoo_user_id
         await message.answer("Готово: Telegram подключён к твоему профилю Odoo.")
-    else:
+    elif not dynamic_invite_claimed:
         odoo_user_id = (
             settings.odoo_user_id_for(message.from_user.id) if message.from_user else 0
         )
@@ -376,6 +399,7 @@ async def start(message: Message, state: FSMContext) -> None:
         and odoo_user_id > 0
         and message.from_user
         and not invite
+        and not dynamic_invite_claimed
     ):
         try:
             session_factory = build_session_factory(settings.database_url)
@@ -407,6 +431,7 @@ async def start(message: Message, state: FSMContext) -> None:
         "/daily — пройти дейли\n"
         "/weekly — выбрать фокус недели\n"
         "/blockers — открытые затруднения\n"
+        "/whoami — проверить связь с Odoo\n"
         "/cancel — остановить текущий опрос"
         f"{test_command}"
     )
@@ -870,4 +895,3 @@ async def receive_extra(message: Message, state: FSMContext) -> None:
         f"Ответов по задачам: {len(answers)}.\n"
         f"Дополнительно: {extra or 'нет'}."
     )
-

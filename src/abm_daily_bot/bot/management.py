@@ -20,10 +20,26 @@ from abm_daily_bot.db.models import (
 from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.domain import BlockerStatus
 from abm_daily_bot.services.odoo_client import OdooClient
+from abm_daily_bot.services.telegram_invites import create_telegram_invite
 from abm_daily_bot.services.weekly_store import monday_for
 
 router = Router(name="management")
 logger = logging.getLogger(__name__)
+
+INVITE_ROLE_ALIASES = {
+    "member": UserRole.MEMBER,
+    "участник": UserRole.MEMBER,
+    "pm": UserRole.PM,
+    "пм": UserRole.PM,
+    "tech_lead": UserRole.TECH_LEAD,
+    "techlead": UserRole.TECH_LEAD,
+    "техлид": UserRole.TECH_LEAD,
+}
+ROLE_LABELS = {
+    UserRole.MEMBER: "участник",
+    UserRole.PM: "PM",
+    UserRole.TECH_LEAD: "техлид",
+}
 
 
 def parse_telegram_ids(*values: str) -> set[int]:
@@ -44,6 +60,18 @@ def command_task_id(text: str | None) -> int | None:
     if len(parts) != 2 or not parts[1].isdigit():
         return None
     return int(parts[1])
+
+
+def parse_invite_request(text: str | None) -> tuple[str, UserRole] | None:
+    parts = (text or "").split()
+    if len(parts) < 2:
+        return None
+    arguments = parts[1:]
+    role = INVITE_ROLE_ALIASES.get(arguments[-1].lower(), UserRole.MEMBER)
+    if arguments[-1].lower() in INVITE_ROLE_ALIASES:
+        arguments.pop()
+    query = " ".join(arguments).strip()
+    return (query, role) if query else None
 
 
 def preferred_open_stage(stages: list[dict[str, object]]) -> dict[str, object] | None:
@@ -78,6 +106,104 @@ async def require_manager(message: Message, settings: Settings) -> bool:
             logger.exception("Failed to check Telegram manager role")
     await message.answer("Команда доступна только PM и техлиду.")
     return False
+
+
+@router.message(Command("whoami"))
+async def whoami(message: Message) -> None:
+    settings = get_settings()
+    if not message.from_user:
+        return
+    try:
+        session_factory = build_session_factory(settings.database_url)
+        async with session_scope(session_factory) as session:
+            user = await session.scalar(
+                select(User).where(User.telegram_user_id == message.from_user.id)
+            )
+    except Exception:  # noqa: BLE001
+        await message.answer("Не удалось проверить профиль. Попробуй ещё раз через минуту.")
+        return
+    if not user:
+        await message.answer(
+            "Telegram пока не связан с Odoo. Нужна персональная ссылка от PM."
+        )
+        return
+    await message.answer(
+        "<strong>Твой профиль</strong>\n"
+        f"Telegram: {escape(message.from_user.full_name)}\n"
+        f"Odoo user ID: {user.odoo_user_id}\n"
+        f"Роль: {ROLE_LABELS[user.role]}\n"
+        f"Область: {escape(settings.odoo_scope_label or 'Odoo')}"
+    )
+
+
+@router.message(Command("invite"))
+async def invite_user(message: Message) -> None:
+    settings = get_settings()
+    if not await require_manager(message, settings):
+        return
+    request = parse_invite_request(message.text)
+    if not request:
+        await message.answer(
+            "Формат: <code>/invite сотрудник@company.ru member</code>\n"
+            "Роли: <code>member</code>, <code>pm</code>, <code>tech_lead</code>."
+        )
+        return
+    query, role = request
+    try:
+        matches = await OdooClient(settings).search_users(query)
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(f"Не удалось найти пользователя Odoo: {escape(str(exc))}")
+        return
+    if not matches:
+        await message.answer("Активный пользователь Odoo по запросу не найден.")
+        return
+    if len(matches) > 1:
+        choices = "\n".join(
+            f"• ID {item['id']}: {escape(str(item.get('name') or '-'))} "
+            f"({escape(str(item.get('login') or '-'))})"
+            for item in matches
+        )
+        await message.answer(
+            "Найдено несколько пользователей. Повтори команду с точным ID:\n" + choices
+        )
+        return
+
+    odoo_user = matches[0]
+    try:
+        session_factory = build_session_factory(settings.database_url)
+        async with session_scope(session_factory) as session:
+            issuer = await session.scalar(
+                select(User).where(User.telegram_user_id == message.from_user.id)
+            )
+            existing = await session.scalar(
+                select(User).where(User.odoo_user_id == int(odoo_user["id"]))
+            )
+            if existing:
+                await message.answer(
+                    "Этот Odoo-профиль уже подключён к Telegram. Новая ссылка не создана."
+                )
+                return
+            token, invite = await create_telegram_invite(
+                session,
+                odoo_user_id=int(odoo_user["id"]),
+                odoo_display_name=str(odoo_user.get("name") or query),
+                role=role,
+                created_by_user_id=issuer.id if issuer else None,
+            )
+        bot_user = await message.bot.get_me()
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(f"Не удалось создать приглашение: {escape(str(exc))}")
+        return
+
+    link = f"https://t.me/{bot_user.username}?start={token}"
+    await message.answer(
+        "<strong>Персональная ссылка создана</strong>\n"
+        f"Odoo: {escape(invite.odoo_display_name)} (ID {invite.odoo_user_id})\n"
+        f"Роль: {ROLE_LABELS[invite.role]}\n"
+        "Действует 7 дней и закрепляется за первым Telegram-аккаунтом.\n\n"
+        f'<a href="{escape(link, quote=True)}">Подключить Telegram к Odoo</a>\n\n'
+        "Перешли это сообщение только указанному сотруднику."
+    )
 
 
 async def build_digest(settings: Settings, weekly: bool = False) -> str:
@@ -322,4 +448,3 @@ async def test_reopen(message: Message) -> None:
         f"Тестовая задача #{task_id} снова открыта на этапе «{stage_name}». "
         "Теперь отправь /daily."
     )
-
