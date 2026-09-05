@@ -163,11 +163,16 @@ class OdooClient:
         )
 
     async def search_open_tasks(self, name_query: str | None = None) -> list[dict[str, Any]]:
-        domain: list[list[Any]] = [["is_closed", "=", False]]
+        exact_task_id = (
+            int(name_query.strip()) if name_query and name_query.strip().isdigit() else None
+        )
+        domain: list[list[Any]] = []
+        if exact_task_id is None:
+            domain.append(["is_closed", "=", False])
         self._apply_project_scope(domain)
         if name_query:
-            if name_query.strip().isdigit():
-                domain.append(["id", "=", int(name_query.strip())])
+            if exact_task_id is not None:
+                domain.append(["id", "=", exact_task_id])
             else:
                 domain.append(["name", "ilike", name_query])
         options: dict[str, Any] = {

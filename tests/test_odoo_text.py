@@ -41,3 +41,4 @@ async def test_manager_can_find_an_open_task_by_exact_odoo_id() -> None:
     domain = client.call.await_args.args[2]
     assert ["id", "=", 597] in domain
     assert ["name", "ilike", "597"] not in domain
+    assert ["is_closed", "=", False] not in domain
