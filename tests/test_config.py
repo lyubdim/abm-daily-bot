@@ -52,7 +52,9 @@ def test_bootstrap_invite_can_enable_explicit_recovery() -> None:
 
 
 def test_ai_and_blocker_privacy_have_safe_defaults() -> None:
-    settings = Settings(ai_model="")
+    settings = Settings(ai_model="", yandex_ai_model="")
 
     assert settings.ai_model == "gpt-5-mini"
+    assert settings.yandex_ai_model == "aliceai-llm"
+    assert settings.ai_provider == "auto"
     assert settings.odoo_include_blocker_text is False

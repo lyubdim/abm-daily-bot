@@ -25,7 +25,7 @@ Telegram-бот для ежедневных статусов команды по
 - SQLAlchemy + Alembic для БД и миграций
 - APScheduler или отдельный worker для расписания
 - Odoo API: JSON-2 для Odoo 19+, XML-RPC/JSON-RPC fallback для более старых версий
-- OpenAI API или другой LLM-провайдер для короткого AI-совета
+- Alice AI LLM (Yandex AI Studio) или OpenAI для короткого AI-совета
 
 ## Документация
 
@@ -157,6 +157,24 @@ docker compose --env-file deploy/production.env \
 
 Полная инструкция: [docs/deployment.md](docs/deployment.md).
 
+AI-советы можно подключить через OpenAI-совместимый Responses API Yandex AI Studio:
+
+```dotenv
+AI_PROVIDER=yandex
+YANDEX_API_KEY=<секретный API-ключ AI Studio>
+YANDEX_FOLDER_ID=<идентификатор каталога Yandex Cloud>
+YANDEX_AI_MODEL=aliceai-llm
+```
+
+Ключ и каталог создаются в AI Studio и хранятся только в `.env.prod.local` или
+серверном secret storage. При отсутствии ключа бот продолжает работать с локальной
+резервной рекомендацией; `AI_PROVIDER=auto` автоматически предпочитает Yandex, затем
+OpenAI.
+
+На Windows ключ можно безопасно записать без открытия env-файла: запустить
+`scripts/setup-yandex-ai.cmd`, ввести ключ в скрытом поле и идентификатор каталога.
+Скрипт сразу перезапустит production preview.
+
 Проверка доступа к Odoo в режиме чтения:
 
 ```bash
@@ -167,8 +185,9 @@ abm-odoo-discover
 
 Готовы исследование, архитектура, модели хранения, outbox, Telegram FSM и
 Odoo-клиент. На test stand и в production подтверждены чтение назначенной задачи,
-смена этапа и запись внутреннего комментария в chatter. Реализован AI-совет через OpenAI Responses
-API с контекстом задачи и недавними сообщениями из chatter. Ответы дейли сохраняются
+смена этапа и запись внутреннего комментария в chatter. Реализован AI-совет через
+Alice AI LLM или OpenAI Responses API с контекстом задачи и недавними сообщениями из
+chatter. Ответы дейли сохраняются
 в PostgreSQL и доставляются в Odoo через retryable outbox; повторный ответ за день
 обновляет ту же запись и chatter-сообщение. Общий ответ вне списка задач сохраняется
 отдельно и отмечает дейли завершённым. Команда `/weekly` позволяет кнопками

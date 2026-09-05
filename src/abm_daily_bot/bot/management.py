@@ -23,6 +23,7 @@ from abm_daily_bot.db.models import (
 )
 from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.domain import BlockerStatus
+from abm_daily_bot.services.ai_advice import AIAdviceService
 from abm_daily_bot.services.odoo_client import OdooClient
 from abm_daily_bot.services.telegram_invites import create_telegram_invite
 from abm_daily_bot.services.weekly_store import monday_for
@@ -137,6 +138,7 @@ def health_report_text(
     failed_outbox: int,
     ai_configured: bool,
     scope: str,
+    ai_provider: str | None = None,
 ) -> str:
     status = lambda value: "✅" if value else "❌"
     queue_ok = failed_outbox == 0
@@ -147,7 +149,7 @@ def health_report_text(
         f"{status(queue_ok)} Очередь Odoo: {pending_outbox} ожидают, "
         f"{failed_outbox} требуют внимания\n"
         f"{'✅' if ai_configured else '⚠️'} AI: "
-        f"{'подключён' if ai_configured else 'локальный fallback'}\n"
+        f"{f'подключён ({ai_provider})' if ai_configured else 'локальный fallback'}\n"
         f"👥 Подключено пользователей: {active_users}\n"
         f"📁 Область: {escape(scope or 'Odoo')}"
     )
@@ -203,8 +205,9 @@ async def health(message: Message) -> None:
             active_users=active_users,
             pending_outbox=pending_outbox,
             failed_outbox=failed_outbox,
-            ai_configured=bool(settings.openai_api_key),
+            ai_configured=bool(AIAdviceService.configured_provider(settings)),
             scope=settings.odoo_scope_label,
+            ai_provider=AIAdviceService.configured_provider(settings),
         )
     )
 

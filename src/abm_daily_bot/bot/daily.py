@@ -580,16 +580,13 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
         if settings.demo_mode
         else "Локальная рекомендация (AI API не настроен)"
     )
-    if settings.openai_api_key:
+    if AIAdviceService.configured_provider(settings):
         try:
             recent_updates: list[str] = []
             if not settings.demo_mode:
                 recent_updates = await OdooClient(settings).recent_task_updates(task["id"])
             context = task_advice_context(task, blocker_text, recent_updates)
-            result = await AIAdviceService(
-                model=settings.ai_model,
-                api_key=settings.openai_api_key,
-            ).make_advice(context)
+            result = await AIAdviceService.from_settings(settings).make_advice(context)
             advice = result.recommendation
             clarification_question = result.clarification_question
             advice_prefix = "AI-совет"
@@ -666,7 +663,7 @@ async def persist_blocker_response(
                 blocker=blocker,
                 recommendation=advice,
                 clarification_question=clarification_question,
-                model=settings.ai_model if settings.openai_api_key else "local-fallback",
+                model=AIAdviceService.configured_model(settings) or "local-fallback",
             )
             await queue_blocker_odoo_sync(
                 session,
@@ -715,15 +712,14 @@ async def receive_blocker_clarification(message: Message, state: FSMContext) -> 
     settings = get_settings()
     advice = demo_advice(task["name"], blocker_text)
     advice_prefix = "AI временно недоступен. Локальная рекомендация"
-    if settings.openai_api_key:
+    if AIAdviceService.configured_provider(settings):
         try:
             recent_updates: list[str] = []
             if not settings.demo_mode:
                 recent_updates = await OdooClient(settings).recent_task_updates(task["id"])
-            result = await AIAdviceService(
-                model=settings.ai_model,
-                api_key=settings.openai_api_key,
-            ).make_advice(task_advice_context(task, blocker_text, recent_updates))
+            result = await AIAdviceService.from_settings(settings).make_advice(
+                task_advice_context(task, blocker_text, recent_updates)
+            )
             if result.needs_clarification:
                 raise RuntimeError("AI requested more than one clarification")
             advice = result.recommendation

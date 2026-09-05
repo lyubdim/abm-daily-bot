@@ -85,3 +85,18 @@ def test_health_report_exposes_integration_state_without_secrets() -> None:
     assert "локальный fallback" in report
     assert "Подключено пользователей: 3" in report
     assert "PORTF-008" in report
+
+
+def test_health_report_names_active_ai_provider() -> None:
+    report = health_report_text(
+        database_ok=True,
+        odoo_ok=True,
+        active_users=1,
+        pending_outbox=0,
+        failed_outbox=0,
+        ai_configured=True,
+        ai_provider="yandex",
+        scope="PORTF-008",
+    )
+
+    assert "AI: подключён (yandex)" in report
