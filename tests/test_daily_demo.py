@@ -1,15 +1,34 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from abm_daily_bot.bot.daily import (
     DEMO_TASKS,
     demo_advice,
     format_blocker_comment,
     format_odoo_comment,
     normalize_odoo_task,
+    optional_http_url,
     stage_is_done,
     status_keyboard,
     task_advice_context,
 )
+
+
+def test_optional_http_url_accepts_complete_links_and_skip() -> None:
+    assert optional_http_url(" https://example.com/result?id=4 ") == (
+        "https://example.com/result?id=4"
+    )
+    assert optional_http_url("/skip") is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["example.com/result", "ftp://example.com/result", "https://bad link/result", ""],
+)
+def test_optional_http_url_rejects_invalid_values(value: str) -> None:
+    with pytest.raises(ValueError):
+        optional_http_url(value)
 
 
 def test_demo_contains_multiple_tasks() -> None:

@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 from html import escape
 from typing import Any
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
@@ -66,6 +67,21 @@ ODOO_TASK_STATES = [
     ("Готово", "1_done"),
 ]
 STATE_LABELS = {value: label for label, value in ODOO_TASK_STATES}
+
+
+def optional_http_url(text: str | None) -> str | None:
+    value = (text or "").strip()
+    if value == "/skip":
+        return None
+    parsed = urlsplit(value)
+    if (
+        len(value) > 1000
+        or any(character.isspace() for character in value)
+        or parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.hostname
+    ):
+        raise ValueError("Expected a complete HTTP(S) URL")
+    return value
 
 
 class DailyStates(StatesGroup):
@@ -534,7 +550,13 @@ async def request_blocker_resolution(callback: CallbackQuery, state: FSMContext)
 async def save_blocker_resolution(message: Message, state: FSMContext) -> None:
     settings = get_settings()
     data = await state.get_data()
-    resolution_url = None if message.text == "/skip" else message.text
+    try:
+        resolution_url = optional_http_url(message.text)
+    except ValueError:
+        await message.answer(
+            "Нужна полная ссылка, начинающаяся с http:// или https://, либо /skip."
+        )
+        return
     if not message.from_user:
         return
     try:
@@ -724,7 +746,13 @@ async def save_answer_and_continue(
 
 @router.message(DailyStates.result_url, F.text)
 async def receive_result_url(message: Message, state: FSMContext) -> None:
-    result_url = None if message.text == "/skip" else message.text
+    try:
+        result_url = optional_http_url(message.text)
+    except ValueError:
+        await message.answer(
+            "Нужна полная ссылка, начинающаяся с http:// или https://, либо /skip."
+        )
+        return
     await save_answer_and_continue(message, state, result_url=result_url)
 
 
