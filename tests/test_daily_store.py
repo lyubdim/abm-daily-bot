@@ -22,6 +22,7 @@ async def test_existing_odoo_user_is_rebound_to_current_telegram() -> None:
     session = MagicMock()
     session.scalar = AsyncMock(side_effect=[None, existing])
     session.flush = AsyncMock()
+    session.flush = AsyncMock()
 
     result = await get_or_create_user(
         session,
