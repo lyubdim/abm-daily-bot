@@ -6,14 +6,15 @@ ADVICE_SYSTEM_PROMPT = """
 Не давай общую мотивацию, длинные рассуждения и абстрактные советы.
 Если без дополнительных данных нельзя выбрать следующий шаг, задай ровно один уточняющий вопрос.
 Ответ должен быть пригоден для отправки в Telegram и сохранения в карточку задачи Odoo.
+Верни JSON по заданной схеме. Заполни либо recommendation, либо clarification_question,
+но никогда оба поля одновременно.
 """.strip()
 
 
 def build_advice_user_prompt(context: TaskContextForAdvice) -> str:
     task = context.task
     updates = (
-        "\n".join(f"- {item}" for item in context.recent_updates)
-        or "- нет недавних обновлений"
+        "\n".join(f"- {item}" for item in context.recent_updates) or "- нет недавних обновлений"
     )
     deadline = task.deadline.isoformat() if task.deadline else "не указан"
     days_in_stage = (
@@ -37,4 +38,3 @@ def build_advice_user_prompt(context: TaskContextForAdvice) -> str:
 
 Сформулируй один конкретный следующий шаг или один уточняющий вопрос.
 """.strip()
-

@@ -29,11 +29,7 @@ def test_project_scope_is_configurable() -> None:
 
 
 def test_personal_invite_contains_odoo_user_and_role() -> None:
-    settings = Settings(
-        telegram_invite_codes={
-            "private-code": {"odoo_user_id": 584, "role": "pm"}
-        }
-    )
+    settings = Settings(telegram_invite_codes={"private-code": {"odoo_user_id": 584, "role": "pm"}})
 
     assert settings.telegram_invite_codes["private-code"] == {
         "odoo_user_id": 584,
@@ -53,3 +49,10 @@ def test_bootstrap_invite_can_enable_explicit_recovery() -> None:
     )
 
     assert settings.telegram_invite_codes["recovery-code"]["allow_rebind"] is True
+
+
+def test_ai_and_blocker_privacy_have_safe_defaults() -> None:
+    settings = Settings(ai_model="")
+
+    assert settings.ai_model == "gpt-5-mini"
+    assert settings.odoo_include_blocker_text is False

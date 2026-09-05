@@ -1,6 +1,8 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from abm_daily_bot.db.models import OutboxState
+from abm_daily_bot.services.odoo_client import OdooUnavailableError
 from abm_daily_bot.services.outbox import OdooOutboxService, retry_delay
 
 
@@ -67,3 +69,43 @@ async def test_deliver_remembers_direct_mail_message_id() -> None:
     assert item.state == OutboxState.SENT
     assert item.remote_record_id == 654
 
+
+class TemporarilyUnavailableOdoo:
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    async def call(self, *args: object, **kwargs: object) -> bool:
+        self.call_count += 1
+        if self.call_count == 1:
+            raise OdooUnavailableError("Odoo is restarting")
+        return True
+
+
+async def test_delivery_is_retried_after_temporary_odoo_failure() -> None:
+    odoo = TemporarilyUnavailableOdoo()
+    service = OdooOutboxService(odoo)  # type: ignore[arg-type]
+    item = SimpleNamespace(
+        model="project.task",
+        method="write",
+        arguments=[[597], {"stage_id": 24}],
+        keyword_arguments={},
+        attempt_count=0,
+        state=OutboxState.PENDING,
+        next_attempt_at=None,
+        sent_at=None,
+        last_error=None,
+        remote_record_id=None,
+    )
+    now = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
+
+    await service._deliver(item, now=now)  # type: ignore[arg-type]
+
+    assert item.state == OutboxState.RETRY
+    assert item.next_attempt_at > now
+    assert "restarting" in item.last_error
+
+    await service._deliver(item, now=item.next_attempt_at)  # type: ignore[arg-type]
+
+    assert item.state == OutboxState.SENT
+    assert item.attempt_count == 2
+    assert item.last_error is None

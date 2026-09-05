@@ -1,9 +1,13 @@
+from datetime import date
+
 from abm_daily_bot.bot.management import (
     command_task_id,
+    digest_is_weekly,
     health_report_text,
     parse_invite_request,
     parse_telegram_ids,
     preferred_open_stage,
+    previous_workday,
 )
 from abm_daily_bot.db.models import UserRole
 
@@ -16,6 +20,17 @@ def test_command_task_id() -> None:
     assert command_task_id("/test_reopen 4") == 4
     assert command_task_id("/test_reopen") is None
     assert command_task_id("/test_reopen task") is None
+
+
+def test_digest_period_accepts_english_and_russian() -> None:
+    assert digest_is_weekly("/digest week") is True
+    assert digest_is_weekly("/digest неделя") is True
+    assert digest_is_weekly("/digest") is False
+
+
+def test_previous_workday_skips_weekend() -> None:
+    assert previous_workday(date(2026, 9, 7)) == date(2026, 9, 4)
+    assert previous_workday(date(2026, 9, 8)) == date(2026, 9, 7)
 
 
 def test_preferred_open_stage_uses_in_progress_stage() -> None:

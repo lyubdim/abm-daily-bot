@@ -51,9 +51,7 @@ def test_demo_contains_multiple_tasks() -> None:
 
 def test_status_keyboard_contains_required_actions() -> None:
     callbacks = {
-        button.callback_data
-        for row in status_keyboard().inline_keyboard
-        for button in row
+        button.callback_data for row in status_keyboard().inline_keyboard for button in row
     }
 
     assert "daily:stage:1" in callbacks
@@ -145,3 +143,15 @@ def test_blocker_comment_escapes_content_and_includes_resolution() -> None:
     assert "роль &amp; повторить" in comment
     assert "a=1&amp;b=2" in comment
 
+
+def test_blocker_comment_can_hide_sensitive_description() -> None:
+    comment = format_blocker_comment(
+        blocker_text="Секретная причина блокировки",
+        advice="Запросить согласование у PM",
+        clarification_question="Кто принимает решение?",
+        include_description=False,
+    )
+
+    assert "Секретная причина" not in comment
+    assert "Запросить согласование" in comment
+    assert "Кто принимает решение?" in comment

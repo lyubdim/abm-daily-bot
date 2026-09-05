@@ -22,8 +22,9 @@ services:
       ODOO_PROJECT_IDS: ${ODOO_PROJECT_IDS:-[]}
       ODOO_SCOPE_LABEL: ${ODOO_SCOPE_LABEL:-}
       ODOO_VERIFY_SSL: ${ODOO_VERIFY_SSL:-true}
+      ODOO_INCLUDE_BLOCKER_TEXT: ${ODOO_INCLUDE_BLOCKER_TEXT:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      AI_MODEL: ${AI_MODEL:-gpt-5.1-mini}
+      AI_MODEL: ${AI_MODEL:-gpt-5-mini}
       PM_TELEGRAM_IDS: ${PM_TELEGRAM_IDS:-}
       TECH_LEAD_TELEGRAM_IDS: ${TECH_LEAD_TELEGRAM_IDS:-}
     restart: unless-stopped
@@ -62,4 +63,3 @@ services:
 
 volumes:
   postgres_data:
-

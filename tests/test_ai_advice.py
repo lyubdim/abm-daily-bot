@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from types import SimpleNamespace
 
@@ -35,7 +36,14 @@ def advice_context() -> TaskContextForAdvice:
 
 
 async def test_ai_advice_uses_responses_api_without_storage() -> None:
-    responses = FakeResponses("Проверь права API-ключа на project.task.write.")
+    responses = FakeResponses(
+        json.dumps(
+            {
+                "recommendation": "Проверь права API-ключа на project.task.write.",
+                "clarification_question": None,
+            }
+        )
+    )
     client = SimpleNamespace(responses=responses)
     service = AIAdviceService("gpt-5.1-mini", "test-key", client=client)
 
@@ -44,13 +52,36 @@ async def test_ai_advice_uses_responses_api_without_storage() -> None:
     assert result.recommendation == "Проверь права API-ключа на project.task.write."
     assert responses.kwargs["store"] is False
     assert responses.kwargs["model"] == "gpt-5.1-mini"
+    assert responses.kwargs["text"]["format"]["type"] == "json_schema"
     assert "Odoo возвращает 403" in str(responses.kwargs["input"])
 
 
 async def test_ai_advice_rejects_empty_response() -> None:
-    client = SimpleNamespace(responses=FakeResponses("  "))
+    client = SimpleNamespace(
+        responses=FakeResponses(json.dumps({"recommendation": "", "clarification_question": None}))
+    )
     service = AIAdviceService("gpt-5.1-mini", "test-key", client=client)
 
-    with pytest.raises(RuntimeError, match="empty"):
+    with pytest.raises(RuntimeError, match="either advice"):
         await service.make_advice(advice_context())
 
+
+async def test_ai_advice_can_request_one_clarification() -> None:
+    client = SimpleNamespace(
+        responses=FakeResponses(
+            json.dumps(
+                {
+                    "recommendation": "",
+                    "clarification_question": "Какой HTTP-код возвращает Odoo?",
+                },
+                ensure_ascii=False,
+            )
+        )
+    )
+    service = AIAdviceService("gpt-5-mini", "test-key", client=client)
+
+    result = await service.make_advice(advice_context())
+
+    assert result.needs_clarification is True
+    assert result.recommendation == ""
+    assert result.clarification_question == "Какой HTTP-код возвращает Odoo?"

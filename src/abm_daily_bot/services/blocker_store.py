@@ -39,6 +39,7 @@ async def upsert_ai_advice(
     blocker: Blocker,
     recommendation: str,
     model: str,
+    clarification_question: str | None = None,
 ) -> AIAdvice:
     advice = await session.scalar(
         select(AIAdvice).where(AIAdvice.blocker_id == blocker.id).order_by(AIAdvice.id.desc())
@@ -47,6 +48,7 @@ async def upsert_ai_advice(
         advice = AIAdvice(blocker_id=blocker.id, model=model)
         session.add(advice)
     advice.recommendation = recommendation
+    advice.clarification_question = clarification_question
     advice.model = model
     await session.flush()
     return advice
@@ -107,4 +109,3 @@ async def queue_blocker_odoo_sync(
             }
         ],
     )
-

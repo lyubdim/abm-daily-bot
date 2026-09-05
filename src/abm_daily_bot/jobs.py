@@ -35,21 +35,21 @@ def build_scheduler(
     )
     scheduler.add_job(
         func=job_callbacks.get("remind_non_responders", _noop),
-        trigger=CronTrigger(hour=14, minute=0, timezone=timezone),
+        trigger=CronTrigger(day_of_week="mon-fri", hour=14, minute=0, timezone=timezone),
         id="remind_non_responders",
         name="Remind non-responders",
         replace_existing=True,
     )
     scheduler.add_job(
         func=job_callbacks.get("pm_digest", _noop),
-        trigger=CronTrigger(hour=10, minute=0, timezone=timezone),
+        trigger=CronTrigger(day_of_week="mon-fri", hour=10, minute=0, timezone=timezone),
         id="pm_digest",
         name="PM daily digest",
         replace_existing=True,
     )
     scheduler.add_job(
         func=job_callbacks.get("blocker_escalations", _noop),
-        trigger=CronTrigger(hour=18, minute=0, timezone=timezone),
+        trigger=CronTrigger(day_of_week="mon-fri", hour=18, minute=0, timezone=timezone),
         id="blocker_escalations",
         name="Blocker escalation check",
         replace_existing=True,
@@ -62,4 +62,3 @@ def build_scheduler(
         replace_existing=True,
     )
     return scheduler
-

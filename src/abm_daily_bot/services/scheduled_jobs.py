@@ -8,7 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
 from abm_daily_bot.bot.keyboards import scheduled_action_keyboard
-from abm_daily_bot.bot.management import build_digest, manager_ids
+from abm_daily_bot.bot.management import build_digest, manager_ids, previous_workday
 from abm_daily_bot.config import Settings
 from abm_daily_bot.db.models import (
     AIAdvice,
@@ -67,9 +67,7 @@ class ScheduledJobs:
                 await self.bot.send_message(
                     user.telegram_user_id,
                     "Время дейли. Пройди открытые задачи по очереди.",
-                    reply_markup=scheduled_action_keyboard(
-                        "daily", "Начать дейли"
-                    ),
+                    reply_markup=scheduled_action_keyboard("daily", "Начать дейли"),
                 )
             except Exception:
                 logger.exception("Daily start failed for Telegram user %s", user.id)
@@ -81,9 +79,7 @@ class ScheduledJobs:
                 await self.bot.send_message(
                     user.telegram_user_id,
                     "Пора выбрать фокус недели из открытых задач.",
-                    reply_markup=scheduled_action_keyboard(
-                        "weekly", "Выбрать фокус недели"
-                    ),
+                    reply_markup=scheduled_action_keyboard("weekly", "Выбрать фокус недели"),
                 )
             except Exception:
                 logger.exception("Weekly start failed for Telegram user %s", user.id)
@@ -106,7 +102,8 @@ class ScheduledJobs:
         recipients = await self._manager_telegram_ids()
         if not recipients:
             return
-        digest = await build_digest(self.settings)
+        today = datetime.now(ZoneInfo(self.settings.timezone)).date()
+        digest = await build_digest(self.settings, report_date=previous_workday(today))
         for telegram_id in recipients:
             try:
                 await self.bot.send_message(telegram_id, digest)
@@ -155,17 +152,13 @@ class ScheduledJobs:
                 try:
                     await self.bot.send_message(telegram_id, text)
                 except Exception:
-                    logger.exception(
-                        "Blocker escalation failed for Telegram ID %s", telegram_id
-                    )
+                    logger.exception("Blocker escalation failed for Telegram ID %s", telegram_id)
 
     async def assignment_poll(self) -> None:
         tasks = await OdooClient(self.settings).search_open_tasks()
         notifications: list[tuple[int, str, str]] = []
         async with session_scope(self.session_factory) as session:
-            has_baseline = (
-                await session.scalar(select(TaskCache.id).limit(1)) is not None
-            )
+            has_baseline = await session.scalar(select(TaskCache.id).limit(1)) is not None
             users = {
                 user.odoo_user_id: user
                 for user in await session.scalars(select(User).where(User.is_active.is_(True)))
@@ -184,14 +177,10 @@ class ScheduledJobs:
                 project = task.get("project_id")
                 stage = task.get("stage_id")
                 project_name = (
-                    project[1]
-                    if isinstance(project, list | tuple) and len(project) > 1
-                    else None
+                    project[1] if isinstance(project, list | tuple) and len(project) > 1 else None
                 )
                 stage_name = (
-                    stage[1]
-                    if isinstance(stage, list | tuple) and len(stage) > 1
-                    else None
+                    stage[1] if isinstance(stage, list | tuple) and len(stage) > 1 else None
                 )
                 task_url = f"/odoo/project.task/{task['id']}"
                 if str(task_url).startswith("/"):

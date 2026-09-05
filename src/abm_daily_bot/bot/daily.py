@@ -90,6 +90,7 @@ class DailyStates(StatesGroup):
     progress = State()
     status = State()
     blocker = State()
+    blocker_clarification = State()
     result_url = State()
     resolution_url = State()
     extra = State()
@@ -165,8 +166,7 @@ def normalize_odoo_task(task: dict[str, Any], base_url: str) -> dict[str, Any]:
         "state": task.get("state"),
         "stage": (
             task["stage_id"][1]
-            if isinstance(task.get("stage_id"), list | tuple)
-            and len(task["stage_id"]) > 1
+            if isinstance(task.get("stage_id"), list | tuple) and len(task["stage_id"]) > 1
             else None
         ),
         "stage_id": (
@@ -260,6 +260,8 @@ def format_blocker_comment(
     *,
     blocker_text: str,
     advice: str,
+    clarification_question: str | None = None,
+    include_description: bool = True,
     resolved: bool = False,
     resolution_url: str | None = None,
 ) -> str:
@@ -267,9 +269,13 @@ def format_blocker_comment(
     rows = [
         "<p><strong>[ABM Daily Bot: затруднение]</strong></p>",
         f"<p><strong>Статус:</strong> {status}</p>",
-        f"<p><strong>Описание:</strong> {escape(blocker_text)}</p>",
-        f"<p><strong>AI-рекомендация:</strong> {escape(advice)}</p>",
     ]
+    if include_description:
+        rows.append(f"<p><strong>Описание:</strong> {escape(blocker_text)}</p>")
+    if advice:
+        rows.append(f"<p><strong>AI-рекомендация:</strong> {escape(advice)}</p>")
+    if clarification_question:
+        rows.append(f"<p><strong>Уточняющий вопрос:</strong> {escape(clarification_question)}</p>")
     if resolution_url:
         safe_url = escape(resolution_url, quote=True)
         rows.append(f'<p><strong>Решение:</strong> <a href="{safe_url}">{safe_url}</a></p>')
@@ -290,9 +296,7 @@ def resolve_blocker_keyboard(blocker_id: int) -> InlineKeyboardMarkup:
 
 
 def progress_keyboard(task_url: str | None) -> InlineKeyboardMarkup:
-    rows = [
-        [InlineKeyboardButton(text="Без изменений", callback_data="daily:no_changes")]
-    ]
+    rows = [[InlineKeyboardButton(text="Без изменений", callback_data="daily:no_changes")]]
     if task_url:
         rows.append([InlineKeyboardButton(text="Открыть в Odoo ↗", url=task_url)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -364,9 +368,7 @@ async def start(message: Message, state: FSMContext) -> None:
             await message.answer(f"Не удалось применить приглашение: {escape(str(exc))}")
             return
         except Exception:  # noqa: BLE001
-            await message.answer(
-                "Не удалось проверить приглашение. Попробуй ещё раз через минуту."
-            )
+            await message.answer("Не удалось проверить приглашение. Попробуй ещё раз через минуту.")
             return
     if invite and message.from_user:
         try:
@@ -389,9 +391,7 @@ async def start(message: Message, state: FSMContext) -> None:
         settings.telegram_odoo_user_map[message.from_user.id] = odoo_user_id
         await message.answer("Готово: Telegram подключён к твоему профилю Odoo.")
     elif not dynamic_invite_claimed:
-        odoo_user_id = (
-            settings.odoo_user_id_for(message.from_user.id) if message.from_user else 0
-        )
+        odoo_user_id = settings.odoo_user_id_for(message.from_user.id) if message.from_user else 0
     if (
         not settings.demo_mode
         and odoo_user_id > 0
@@ -418,9 +418,7 @@ async def start(message: Message, state: FSMContext) -> None:
         )
         return
     test_command = (
-        "\n/test_reopen 4 — снова открыть тестовую задачу"
-        if settings.app_env == "local"
-        else ""
+        "\n/test_reopen 4 — снова открыть тестовую задачу" if settings.app_env == "local" else ""
     )
     await message.answer(
         "<strong>ABM Club Daily</strong>\n"
@@ -456,11 +454,7 @@ async def begin_daily_for_user(
             stages_by_project: dict[int, list[dict[str, Any]]] = {}
             for raw_task in raw_tasks:
                 project = raw_task.get("project_id")
-                project_id = (
-                    int(project[0])
-                    if isinstance(project, list | tuple) and project
-                    else 0
-                )
+                project_id = int(project[0]) if isinstance(project, list | tuple) and project else 0
                 if project_id and project_id not in stages_by_project:
                     stages_by_project[project_id] = await client.search_task_stages(project_id)
         except Exception as exc:  # noqa: BLE001
@@ -542,7 +536,9 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     task = data["tasks"][data["task_index"]]
     settings = get_settings()
-    advice = demo_advice(task["name"], message.text)
+    blocker_text = message.text
+    advice = demo_advice(task["name"], blocker_text)
+    clarification_question: str | None = None
     advice_prefix = (
         "Тестовая рекомендация"
         if settings.demo_mode
@@ -553,63 +549,118 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
             recent_updates: list[str] = []
             if not settings.demo_mode:
                 recent_updates = await OdooClient(settings).recent_task_updates(task["id"])
-            context = task_advice_context(task, message.text, recent_updates)
+            context = task_advice_context(task, blocker_text, recent_updates)
             result = await AIAdviceService(
                 model=settings.ai_model,
                 api_key=settings.openai_api_key,
             ).make_advice(context)
             advice = result.recommendation
+            clarification_question = result.clarification_question
             advice_prefix = "AI-совет"
         except Exception:  # noqa: BLE001
             advice_prefix = "AI временно недоступен. Локальная рекомендация"
 
-    blocker_id: int | None = None
+    try:
+        blocker_id = await persist_blocker_response(
+            message,
+            task=task,
+            blocker_text=blocker_text,
+            advice=advice,
+            clarification_question=clarification_question,
+        )
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(
+            "Не удалось сохранить затруднение. Попробуй отправить его ещё раз. "
+            f"Ошибка: {escape(str(exc))}"
+        )
+        return
+
+    await state.update_data(
+        blocker=blocker_text,
+        blocker_original=blocker_text,
+        advice=advice or None,
+        blocker_id=blocker_id,
+        clarification_question=clarification_question,
+    )
+    if clarification_question:
+        await state.set_state(DailyStates.blocker_clarification)
+        await message.answer(
+            "Чтобы дать конкретный следующий шаг, нужна одна деталь:\n"
+            f"{escape(clarification_question)}"
+        )
+        return
+
+    await finish_blocker_advice(
+        message,
+        state,
+        task=task,
+        advice=advice,
+        advice_prefix=advice_prefix,
+        blocker_id=blocker_id,
+    )
+
+
+async def persist_blocker_response(
+    message: Message,
+    *,
+    task: dict[str, Any],
+    blocker_text: str,
+    advice: str,
+    clarification_question: str | None,
+) -> int | None:
+    settings = get_settings()
     if not settings.demo_mode:
         if not message.from_user:
-            await message.answer("Не удалось определить Telegram-пользователя.")
-            return
-        try:
-            session_factory = build_session_factory(settings.database_url)
-            outbox = OdooOutboxService(OdooClient(settings))
-            async with session_scope(session_factory) as session:
-                user = await get_or_create_user(
-                    session,
-                    telegram_user_id=message.from_user.id,
-                    odoo_user_id=settings.odoo_user_id_for(message.from_user.id),
-                    display_name=message.from_user.full_name,
-                )
-                blocker = await upsert_open_blocker(
-                    session,
-                    user=user,
-                    task_id=task["id"],
-                    text=message.text,
-                )
-                await upsert_ai_advice(
-                    session,
-                    blocker=blocker,
-                    recommendation=advice,
-                    model=settings.ai_model if settings.openai_api_key else "local-fallback",
-                )
-                await queue_blocker_odoo_sync(
-                    session,
-                    outbox,
-                    blocker=blocker,
-                    comment=format_blocker_comment(
-                        blocker_text=message.text,
-                        advice=advice,
-                    ),
-                )
-                blocker_id = blocker.id
-            async with session_scope(session_factory) as session:
-                await outbox.process_due(session)
-        except Exception as exc:  # noqa: BLE001
-            await message.answer(
-                "Не удалось сохранить затруднение. Попробуй отправить его ещё раз. "
-                f"Ошибка: {escape(str(exc))}"
+            raise RuntimeError("Не удалось определить Telegram-пользователя")
+        session_factory = build_session_factory(settings.database_url)
+        outbox = OdooOutboxService(OdooClient(settings))
+        async with session_scope(session_factory) as session:
+            user = await get_or_create_user(
+                session,
+                telegram_user_id=message.from_user.id,
+                odoo_user_id=settings.odoo_user_id_for(message.from_user.id),
+                display_name=message.from_user.full_name,
             )
-            return
+            blocker = await upsert_open_blocker(
+                session,
+                user=user,
+                task_id=task["id"],
+                text=blocker_text,
+            )
+            await upsert_ai_advice(
+                session,
+                blocker=blocker,
+                recommendation=advice,
+                clarification_question=clarification_question,
+                model=settings.ai_model if settings.openai_api_key else "local-fallback",
+            )
+            await queue_blocker_odoo_sync(
+                session,
+                outbox,
+                blocker=blocker,
+                comment=format_blocker_comment(
+                    blocker_text=blocker_text,
+                    advice=advice,
+                    clarification_question=clarification_question,
+                    include_description=settings.odoo_include_blocker_text,
+                ),
+            )
+            blocker_id = blocker.id
+        async with session_scope(session_factory) as session:
+            await outbox.process_due(session)
+        return blocker_id
+    return None
 
-    await state.update_data(blocker=message.text, advice=advice, blocker_id=blocker_id)
+
+async def finish_blocker_advice(
+    message: Message,
+    state: FSMContext,
+    *,
+    task: dict[str, Any],
+    advice: str,
+    advice_prefix: str,
+    blocker_id: int | None,
+) -> None:
     await state.set_state(DailyStates.status)
     await message.answer(
         f"{advice_prefix}:\n{escape(advice)}",
@@ -618,6 +669,60 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
     await message.answer(
         "Теперь выбери этап задачи:",
         reply_markup=status_keyboard(task.get("available_stages")),
+    )
+
+
+@router.message(DailyStates.blocker_clarification, F.text)
+async def receive_blocker_clarification(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    task = data["tasks"][data["task_index"]]
+    original = str(data.get("blocker_original") or data.get("blocker") or "")
+    blocker_text = f"{original}\nУточнение участника: {message.text}"
+    settings = get_settings()
+    advice = demo_advice(task["name"], blocker_text)
+    advice_prefix = "AI временно недоступен. Локальная рекомендация"
+    if settings.openai_api_key:
+        try:
+            recent_updates: list[str] = []
+            if not settings.demo_mode:
+                recent_updates = await OdooClient(settings).recent_task_updates(task["id"])
+            result = await AIAdviceService(
+                model=settings.ai_model,
+                api_key=settings.openai_api_key,
+            ).make_advice(task_advice_context(task, blocker_text, recent_updates))
+            if result.needs_clarification:
+                raise RuntimeError("AI requested more than one clarification")
+            advice = result.recommendation
+            advice_prefix = "AI-совет"
+        except Exception:  # noqa: BLE001
+            advice = demo_advice(task["name"], blocker_text)
+            advice_prefix = "AI временно недоступен. Локальная рекомендация"
+    try:
+        blocker_id = await persist_blocker_response(
+            message,
+            task=task,
+            blocker_text=blocker_text,
+            advice=advice,
+            clarification_question=None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(
+            f"Не удалось сохранить ответ на уточнение. Попробуй ещё раз. Ошибка: {escape(str(exc))}"
+        )
+        return
+    await state.update_data(
+        blocker=blocker_text,
+        advice=advice,
+        blocker_id=blocker_id,
+        clarification_question=None,
+    )
+    await finish_blocker_advice(
+        message,
+        state,
+        task=task,
+        advice=advice,
+        advice_prefix=advice_prefix,
+        blocker_id=blocker_id,
     )
 
 
@@ -700,6 +805,8 @@ async def save_blocker_resolution(message: Message, state: FSMContext) -> None:
                 comment=format_blocker_comment(
                     blocker_text=blocker.text,
                     advice=advice.recommendation if advice else "не сформирована",
+                    clarification_question=(advice.clarification_question if advice else None),
+                    include_description=settings.odoo_include_blocker_text,
                     resolved=True,
                     resolution_url=resolution_url,
                 ),
@@ -728,8 +835,7 @@ async def skip_rest(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(DailyStates.extra)
     if isinstance(callback.message, Message):
         await callback.message.answer(
-            "Оставшиеся задачи пропущены. Делал что-то ещё, не из списка? "
-            "Напиши текст или /skip."
+            "Оставшиеся задачи пропущены. Делал что-то ещё, не из списка? Напиши текст или /skip."
         )
 
 
@@ -755,11 +861,7 @@ async def choose_stage(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     task = data["tasks"][data["task_index"]]
     selected_stage = next(
-        (
-            stage
-            for stage in task.get("available_stages", [])
-            if int(stage["id"]) == stage_id
-        ),
+        (stage for stage in task.get("available_stages", []) if int(stage["id"]) == stage_id),
         None,
     )
     if selected_stage is None:
@@ -802,14 +904,12 @@ async def save_answer_and_continue(
         comment = format_odoo_comment(
             progress=data.get("progress"),
             task_state=stage_name,
-            blocker=data.get("blocker"),
+            blocker=(data.get("blocker") if settings.odoo_include_blocker_text else None),
             advice=data.get("advice"),
             result_url=result_url,
         )
         try:
-            actor_id = telegram_user_id or (
-                message.from_user.id if message.from_user else None
-            )
+            actor_id = telegram_user_id or (message.from_user.id if message.from_user else None)
             actor_name = telegram_full_name or (
                 message.from_user.full_name if message.from_user else None
             )
@@ -866,7 +966,14 @@ async def save_answer_and_continue(
             "result_url": result_url,
         }
     )
-    await state.update_data(answers=answers, blocker=None, advice=None)
+    await state.update_data(
+        answers=answers,
+        blocker=None,
+        blocker_original=None,
+        advice=None,
+        blocker_id=None,
+        clarification_question=None,
+    )
     if settings.demo_mode:
         await message.answer("Ответ сохранён локально для demo.")
     else:
@@ -913,13 +1020,9 @@ async def receive_extra(message: Message, state: FSMContext) -> None:
                     extra_text=extra,
                 )
         except Exception as exc:  # noqa: BLE001
-            await message.answer(
-                f"Не удалось завершить и сохранить дейли: {escape(str(exc))}"
-            )
+            await message.answer(f"Не удалось завершить и сохранить дейли: {escape(str(exc))}")
             return
     await state.clear()
     await message.answer(
-        "Дейли завершён.\n"
-        f"Ответов по задачам: {len(answers)}.\n"
-        f"Дополнительно: {extra or 'нет'}."
+        f"Дейли завершён.\nОтветов по задачам: {len(answers)}.\nДополнительно: {extra or 'нет'}."
     )

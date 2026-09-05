@@ -166,7 +166,10 @@ class OdooClient:
         domain: list[list[Any]] = [["is_closed", "=", False]]
         self._apply_project_scope(domain)
         if name_query:
-            domain.append(["name", "ilike", name_query])
+            if name_query.strip().isdigit():
+                domain.append(["id", "=", int(name_query.strip())])
+            else:
+                domain.append(["name", "ilike", name_query])
         options: dict[str, Any] = {
             "fields": [
                 "name",

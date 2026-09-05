@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from html import escape
 from zoneinfo import ZoneInfo
 
@@ -18,6 +18,7 @@ from abm_daily_bot.db.models import (
     OutboxState,
     User,
     UserRole,
+    WeeklyPlan,
 )
 from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.domain import BlockerStatus
@@ -62,6 +63,18 @@ def command_task_id(text: str | None) -> int | None:
     if len(parts) != 2 or not parts[1].isdigit():
         return None
     return int(parts[1])
+
+
+def digest_is_weekly(text: str | None) -> bool:
+    argument = (text or "").partition(" ")[2].strip().lower()
+    return argument.startswith(("week", "недел"))
+
+
+def previous_workday(value: date) -> date:
+    result = value - timedelta(days=1)
+    while result.weekday() >= 5:
+        result -= timedelta(days=1)
+    return result
 
 
 def parse_invite_request(text: str | None) -> tuple[str, UserRole] | None:
@@ -206,9 +219,7 @@ async def whoami(message: Message) -> None:
         await message.answer("Не удалось проверить профиль. Попробуй ещё раз через минуту.")
         return
     if not user:
-        await message.answer(
-            "Telegram пока не связан с Odoo. Нужна персональная ссылка от PM."
-        )
+        await message.answer("Telegram пока не связан с Odoo. Нужна персональная ссылка от PM.")
         return
     await message.answer(
         "<strong>Твой профиль</strong>\n"
@@ -289,9 +300,14 @@ async def invite_user(message: Message) -> None:
     )
 
 
-async def build_digest(settings: Settings, weekly: bool = False) -> str:
+async def build_digest(
+    settings: Settings,
+    weekly: bool = False,
+    report_date: date | None = None,
+) -> str:
     local_today = datetime.now(ZoneInfo(settings.timezone)).date()
-    period_start = monday_for(local_today) if weekly else local_today
+    period_end = report_date or local_today
+    period_start = monday_for(period_end) if weekly else period_end
     session_factory = build_session_factory(settings.database_url)
     async with session_scope(session_factory) as session:
         users = list(
@@ -299,12 +315,18 @@ async def build_digest(settings: Settings, weekly: bool = False) -> str:
         )
         answers = list(
             await session.scalars(
-                select(DailyAnswer).where(DailyAnswer.answer_date >= period_start)
+                select(DailyAnswer).where(
+                    DailyAnswer.answer_date >= period_start,
+                    DailyAnswer.answer_date <= period_end,
+                )
             )
         )
         summaries = list(
             await session.scalars(
-                select(DailySummary).where(DailySummary.summary_date >= period_start)
+                select(DailySummary).where(
+                    DailySummary.summary_date >= period_start,
+                    DailySummary.summary_date <= period_end,
+                )
             )
         )
         blockers = list(
@@ -315,28 +337,93 @@ async def build_digest(settings: Settings, weekly: bool = False) -> str:
             )
         )
         advice_rows = list(await session.scalars(select(AIAdvice)))
+        weekly_plans = (
+            list(
+                await session.scalars(
+                    select(WeeklyPlan).where(WeeklyPlan.week_start == period_start)
+                )
+            )
+            if weekly
+            else []
+        )
 
     answered_user_ids = {summary.user_id for summary in summaries}
-    advice_by_blocker = {advice.blocker_id: advice.recommendation for advice in advice_rows}
+    users_by_id = {user.id: user for user in users}
+    advice_by_blocker = {
+        advice.blocker_id: (
+            advice.recommendation or advice.clarification_question or "рекомендация не сформирована"
+        )
+        for advice in advice_rows
+    }
     responded = [user.display_name for user in users if user.id in answered_user_ids]
     missing = [user.display_name for user in users if user.id not in answered_user_ids]
-    period_label = "неделю" if weekly else "день"
+    period_label = (
+        f"неделю {period_start.isoformat()} — {period_end.isoformat()}"
+        if weekly
+        else period_end.isoformat()
+    )
+    fresh_blockers = [
+        blocker for blocker in blockers if (local_today - blocker.created_at.date()).days <= 2
+    ]
+    stale_blockers = [
+        blocker for blocker in blockers if (local_today - blocker.created_at.date()).days > 2
+    ]
     lines = [
         f"<strong>Дайджест за {period_label}</strong>",
         f"Ответили: {escape(', '.join(responded) or 'никто')}",
         f"Не ответили: {escape(', '.join(missing) or 'нет')}",
         f"Ответов по задачам: {len(answers)}",
         "",
-        "<strong>Открытые затруднения</strong>",
+        "<strong>Дополнительно вне списка</strong>",
     ]
-    if not blockers:
+    extras = [summary for summary in summaries if summary.extra_text]
+    if not extras:
         lines.append("Нет")
-    for blocker in blockers:
-        advice = advice_by_blocker.get(blocker.id, "рекомендация не сформирована")
-        age = (local_today - blocker.created_at.date()).days
-        marker = " [более 2 дней]" if age > 2 else ""
+    for summary in extras:
+        user = users_by_id.get(summary.user_id)
         lines.append(
-            f"Задача #{blocker.odoo_task_id}{marker}: {escape(blocker.text)}\n"
+            f"{escape(user.display_name if user else 'Неизвестный участник')}: "
+            f"{escape(summary.extra_text or '')}"
+        )
+    if weekly:
+        lines.extend(["", "<strong>Фокус недели</strong>"])
+        if not weekly_plans:
+            lines.append("Не выбран")
+        for plan in weekly_plans:
+            user = users_by_id.get(plan.user_id)
+            task_ids = ", ".join(f"#{task_id}" for task_id in plan.focus_task_ids)
+            strategic = plan.strategic_text or "без стратегического пункта"
+            lines.append(
+                f"{escape(user.display_name if user else 'Неизвестный участник')}: "
+                f"{escape(task_ids or 'задачи не выбраны')}\n"
+                f"Стратегическое: {escape(strategic)}"
+            )
+    lines.extend(
+        [
+            "",
+            "<strong>Открытые затруднения</strong>",
+        ]
+    )
+    if not fresh_blockers:
+        lines.append("Нет")
+    for blocker in fresh_blockers:
+        advice = advice_by_blocker.get(blocker.id, "рекомендация не сформирована")
+        user = users_by_id.get(blocker.user_id)
+        lines.append(
+            f"{escape(user.display_name if user else 'Неизвестный участник')} · "
+            f"задача #{blocker.odoo_task_id}: {escape(blocker.text)}\n"
+            f"Совет: {escape(advice)}"
+        )
+    lines.extend(["", "<strong>Эскалации: зависли более 2 дней</strong>"])
+    if not stale_blockers:
+        lines.append("Нет")
+    for blocker in stale_blockers:
+        advice = advice_by_blocker.get(blocker.id, "рекомендация не сформирована")
+        user = users_by_id.get(blocker.user_id)
+        age = (local_today - blocker.created_at.date()).days
+        lines.append(
+            f"{escape(user.display_name if user else 'Неизвестный участник')} · "
+            f"задача #{blocker.odoo_task_id} · {age} дн.: {escape(blocker.text)}\n"
             f"Совет: {escape(advice)}"
         )
     return "\n".join(lines)
@@ -387,7 +474,7 @@ async def digest(message: Message) -> None:
     settings = get_settings()
     if not await require_manager(message, settings):
         return
-    weekly = len((message.text or "").split()) > 1 and "week" in (message.text or "").lower()
+    weekly = digest_is_weekly(message.text)
     try:
         text = await build_digest(settings, weekly=weekly)
     except Exception as exc:  # noqa: BLE001
@@ -426,7 +513,13 @@ async def task_status(message: Message) -> None:
     for task in tasks:
         stage = task.get("stage_id")
         stage_name = stage[1] if isinstance(stage, list | tuple) and len(stage) > 1 else "-"
-        lines.append(f"#{task['id']} {escape(task['name'])}: {escape(stage_name)}")
+        project = task.get("project_id")
+        project_name = project[1] if isinstance(project, list | tuple) and len(project) > 1 else "-"
+        lines.append(
+            f"#{task['id']} {escape(task['name'])}\n"
+            f"Проект: {escape(project_name)} · этап: {escape(stage_name)} · "
+            f"дедлайн: {escape(str(task.get('date_deadline') or 'не указан'))}"
+        )
     await message.answer("\n".join(lines))
 
 
@@ -438,9 +531,7 @@ async def deadlines(message: Message) -> None:
     today = datetime.now(ZoneInfo(settings.timezone)).date()
     end = today + timedelta(days=6)
     try:
-        tasks = await OdooClient(settings).search_deadlines(
-            today.isoformat(), end.isoformat()
-        )
+        tasks = await OdooClient(settings).search_deadlines(today.isoformat(), end.isoformat())
     except Exception as exc:  # noqa: BLE001
         await message.answer(f"Не удалось получить дедлайны: {escape(str(exc))}")
         return
@@ -450,8 +541,7 @@ async def deadlines(message: Message) -> None:
     lines = ["<strong>Дедлайны на 7 дней</strong>"]
     for task in tasks:
         lines.append(
-            f"{escape(str(task.get('date_deadline') or '-'))}: "
-            f"#{task['id']} {escape(task['name'])}"
+            f"{escape(str(task.get('date_deadline') or '-'))}: #{task['id']} {escape(task['name'])}"
         )
     await message.answer("\n".join(lines))
 
@@ -528,6 +618,5 @@ async def test_reopen(message: Message) -> None:
         return
     stage_name = str(stage["name"]) if stage is not None else "открытый этап"
     await message.answer(
-        f"Тестовая задача #{task_id} снова открыта на этапе «{stage_name}». "
-        "Теперь отправь /daily."
+        f"Тестовая задача #{task_id} снова открыта на этапе «{stage_name}». Теперь отправь /daily."
     )
