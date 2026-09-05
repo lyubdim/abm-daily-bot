@@ -12,7 +12,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
-from abm_daily_bot.bot.keyboards import telegram_button_text
+from abm_daily_bot.bot.keyboards import main_menu_keyboard, telegram_button_text
 from abm_daily_bot.config import get_settings
 from abm_daily_bot.db.models import User, UserRole
 from abm_daily_bot.db.session import build_session_factory, session_scope
@@ -305,21 +305,35 @@ def progress_keyboard(task_url: str | None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def start_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Начать дейли",
-                    callback_data="scheduled:daily",
-                ),
-                InlineKeyboardButton(
-                    text="Фокус недели",
-                    callback_data="scheduled:weekly",
-                ),
-            ]
-        ]
-    )
+def start_keyboard(*, is_manager: bool = False) -> InlineKeyboardMarkup:
+    return main_menu_keyboard(is_manager=is_manager)
+
+
+async def user_is_manager(telegram_user_id: int) -> bool:
+    settings = get_settings()
+    configured_ids = {
+        int(value.strip())
+        for source in (settings.pm_telegram_ids, settings.tech_lead_telegram_ids)
+        for value in source.split(",")
+        if value.strip().isdigit()
+    }
+    if telegram_user_id in configured_ids:
+        return True
+    if settings.demo_mode:
+        return False
+    try:
+        session_factory = build_session_factory(settings.database_url)
+        async with session_scope(session_factory) as session:
+            role = await session.scalar(
+                select(User.role).where(
+                    User.telegram_user_id == telegram_user_id,
+                    User.is_active.is_(True),
+                )
+            )
+        return role in {UserRole.PM, UserRole.TECH_LEAD}
+    except Exception:
+        logger.exception("Failed to load Telegram user role for menu")
+        return False
 
 
 async def ask_current_task(message: Message, state: FSMContext) -> None:
@@ -371,6 +385,7 @@ def demo_advice(task_name: str, blocker_text: str) -> str:
 
 
 @router.message(CommandStart())
+@router.message(Command("menu", "help"))
 async def start(message: Message, state: FSMContext) -> None:
     await state.clear()
     settings = get_settings()
@@ -454,17 +469,21 @@ async def start(message: Message, state: FSMContext) -> None:
         if settings.app_env == "local"
         else ""
     )
+    is_manager = bool(
+        message.from_user and await user_is_manager(message.from_user.id)
+    )
+    manager_hint = (
+        "\nУправление командой доступно в панели PM."
+        if is_manager
+        else ""
+    )
     await message.answer(
         "<strong>ABM Club Daily</strong>\n"
         "Статусы по задачам из Odoo прямо в Telegram.\n\n"
-        "Команды:\n"
-        "/daily — пройти дейли\n"
-        "/weekly — выбрать фокус недели\n"
-        "/blockers — открытые затруднения\n"
-        "/whoami — проверить связь с Odoo\n"
-        "/cancel — остановить текущий опрос"
+        "Выбери действие кнопкой ниже. Во время опроса команда /cancel остановит его."
+        f"{manager_hint}"
         f"{test_command}",
-        reply_markup=start_keyboard(),
+        reply_markup=start_keyboard(is_manager=is_manager),
     )
 
 
@@ -575,11 +594,7 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
     blocker_text = message.text
     advice = demo_advice(task["name"], blocker_text)
     clarification_question: str | None = None
-    advice_prefix = (
-        "Тестовая рекомендация"
-        if settings.demo_mode
-        else "Локальная рекомендация (AI API не настроен)"
-    )
+    advice_prefix = "Рекомендация по задаче"
     if AIAdviceService.configured_provider(settings):
         try:
             recent_updates: list[str] = []
@@ -591,7 +606,7 @@ async def receive_blocker(message: Message, state: FSMContext) -> None:
             clarification_question = result.clarification_question
             advice_prefix = "AI-совет"
         except Exception:  # noqa: BLE001
-            advice_prefix = "AI временно недоступен. Локальная рекомендация"
+            advice_prefix = "Рекомендация по задаче"
 
     try:
         blocker_id = await persist_blocker_response(
@@ -711,7 +726,7 @@ async def receive_blocker_clarification(message: Message, state: FSMContext) -> 
     blocker_text = f"{original}\nУточнение участника: {message.text}"
     settings = get_settings()
     advice = demo_advice(task["name"], blocker_text)
-    advice_prefix = "AI временно недоступен. Локальная рекомендация"
+    advice_prefix = "Рекомендация по задаче"
     if AIAdviceService.configured_provider(settings):
         try:
             recent_updates: list[str] = []
@@ -726,7 +741,7 @@ async def receive_blocker_clarification(message: Message, state: FSMContext) -> 
             advice_prefix = "AI-совет"
         except Exception:  # noqa: BLE001
             advice = demo_advice(task["name"], blocker_text)
-            advice_prefix = "AI временно недоступен. Локальная рекомендация"
+            advice_prefix = "Рекомендация по задаче"
     try:
         blocker_id = await persist_blocker_response(
             message,
@@ -755,19 +770,16 @@ async def receive_blocker_clarification(message: Message, state: FSMContext) -> 
     )
 
 
-@router.message(Command("blockers"))
-async def list_blockers(message: Message) -> None:
+async def send_open_blockers(message: Message, telegram_user_id: int) -> None:
     settings = get_settings()
     if settings.demo_mode:
         await message.answer("В demo-режиме затруднения не сохраняются.")
-        return
-    if not message.from_user:
         return
     try:
         session_factory = build_session_factory(settings.database_url)
         async with session_scope(session_factory) as session:
             user = await session.scalar(
-                select(User).where(User.telegram_user_id == message.from_user.id)
+                select(User).where(User.telegram_user_id == telegram_user_id)
             )
             blockers = await open_blockers_for_user(session, user.id) if user else []
     except Exception:
@@ -782,6 +794,19 @@ async def list_blockers(message: Message) -> None:
             f"Задача Odoo #{blocker.odoo_task_id}\n{escape(blocker.text)}",
             reply_markup=resolve_blocker_keyboard(blocker.id),
         )
+
+
+@router.message(Command("blockers"))
+async def list_blockers(message: Message) -> None:
+    if message.from_user:
+        await send_open_blockers(message, message.from_user.id)
+
+
+@router.callback_query(F.data == "menu:blockers")
+async def list_blockers_from_menu(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await send_open_blockers(callback.message, callback.from_user.id)
 
 
 @router.callback_query(F.data.startswith("blocker:resolve:"))
@@ -1078,3 +1103,4 @@ async def receive_extra(message: Message, state: FSMContext) -> None:
     await message.answer(
         f"Дейли завершён.\nОтветов по задачам: {len(answers)}.\nДополнительно: {extra or 'нет'}."
     )
+
