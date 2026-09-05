@@ -50,6 +50,7 @@ async def claim_invited_user(
     display_name: str,
     role: UserRole,
     legacy_bot_user_id: int | None = None,
+    allow_rebind: bool = False,
 ) -> User:
     telegram_user = await session.scalar(
         select(User).where(User.telegram_user_id == telegram_user_id)
@@ -58,7 +59,7 @@ async def claim_invited_user(
     if telegram_user and telegram_user.odoo_user_id != odoo_user_id:
         raise ValueError("Telegram-профиль уже связан с другим пользователем Odoo")
     if odoo_user and odoo_user.telegram_user_id != telegram_user_id:
-        if odoo_user.telegram_user_id == legacy_bot_user_id:
+        if odoo_user.telegram_user_id == legacy_bot_user_id or allow_rebind:
             odoo_user.telegram_user_id = telegram_user_id
         else:
             raise ValueError("Эта персональная ссылка уже использована")
@@ -210,4 +211,3 @@ async def upsert_daily_summary(
     summary.extra_text = extra_text
     await session.flush()
     return summary
-

@@ -384,6 +384,7 @@ async def start(message: Message, state: FSMContext) -> None:
                     display_name=message.from_user.full_name,
                     role=role,
                     legacy_bot_user_id=message.bot.id,
+                    allow_rebind=bool(invite.get("allow_rebind", False)),
                 )
         except (KeyError, TypeError, ValueError) as exc:
             await message.answer(f"Не удалось применить приглашение: {escape(str(exc))}")

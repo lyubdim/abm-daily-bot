@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     odoo_password: str = ""
     odoo_default_user_id: int = 0
     telegram_odoo_user_map: dict[int, int] = Field(default_factory=dict)
-    telegram_invite_codes: dict[str, dict[str, int | str]] = Field(default_factory=dict)
+    telegram_invite_codes: dict[str, dict[str, int | str | bool]] = Field(default_factory=dict)
     odoo_project_ids: list[int] = Field(default_factory=list)
     odoo_scope_label: str = ""
     odoo_verify_ssl: bool = True
@@ -53,4 +53,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

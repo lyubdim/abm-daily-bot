@@ -40,3 +40,16 @@ def test_personal_invite_contains_odoo_user_and_role() -> None:
         "role": "pm",
     }
 
+
+def test_bootstrap_invite_can_enable_explicit_recovery() -> None:
+    settings = Settings(
+        telegram_invite_codes={
+            "recovery-code": {
+                "odoo_user_id": 1382,
+                "role": "pm",
+                "allow_rebind": True,
+            }
+        }
+    )
+
+    assert settings.telegram_invite_codes["recovery-code"]["allow_rebind"] is True

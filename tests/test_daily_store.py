@@ -85,6 +85,32 @@ async def test_personal_invite_repairs_legacy_bot_callback_binding() -> None:
 
 
 @pytest.mark.asyncio
+async def test_bootstrap_recovery_can_rebind_stale_odoo_owner() -> None:
+    existing = User(
+        telegram_user_id=333,
+        odoo_user_id=1382,
+        display_name="Stale local binding",
+    )
+    session = MagicMock()
+    session.scalar = AsyncMock(side_effect=[None, existing])
+    session.flush = AsyncMock()
+
+    result = await claim_invited_user(
+        session,
+        telegram_user_id=111,
+        odoo_user_id=1382,
+        display_name="Current administrator",
+        role=UserRole.PM,
+        allow_rebind=True,
+    )
+
+    assert result is existing
+    assert result.telegram_user_id == 111
+    assert result.role == UserRole.PM
+    session.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_active_user_bindings_restore_invites_after_restart() -> None:
     active = User(telegram_user_id=111, odoo_user_id=584, display_name="PM")
     inactive = User(telegram_user_id=222, odoo_user_id=999, display_name="Former")
@@ -139,4 +165,3 @@ async def test_daily_outbox_adopts_latest_legacy_keys_for_odoo_user() -> None:
         [4],
         {"stage_id": 22, "state": "01_in_progress"},
     ]
-
