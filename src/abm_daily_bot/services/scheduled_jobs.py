@@ -9,7 +9,14 @@ from sqlalchemy import select
 
 from abm_daily_bot.bot.management import build_digest, manager_ids
 from abm_daily_bot.config import Settings
-from abm_daily_bot.db.models import AIAdvice, Blocker, DailySummary, TaskCache, User
+from abm_daily_bot.db.models import (
+    AIAdvice,
+    Blocker,
+    DailySummary,
+    TaskCache,
+    User,
+    UserRole,
+)
 from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.domain import BlockerStatus
 from abm_daily_bot.services.odoo_client import OdooClient
@@ -42,6 +49,16 @@ class ScheduledJobs:
                 logger.exception("Scheduled Telegram message failed for user %s", user.id)
         return sent
 
+    async def _manager_telegram_ids(self) -> set[int]:
+        async with session_scope(self.session_factory) as session:
+            persisted = await session.scalars(
+                select(User.telegram_user_id).where(
+                    User.is_active.is_(True),
+                    User.role.in_([UserRole.PM, UserRole.TECH_LEAD]),
+                )
+            )
+            return manager_ids(self.settings) | set(persisted)
+
     async def daily_cycle(self) -> None:
         users = await self._active_users()
         await self._send_to_users(
@@ -69,7 +86,7 @@ class ScheduledJobs:
         )
 
     async def pm_digest(self) -> None:
-        recipients = manager_ids(self.settings)
+        recipients = await self._manager_telegram_ids()
         if not recipients:
             return
         digest = await build_digest(self.settings)
@@ -106,7 +123,7 @@ class ScheduledJobs:
                 blocker.status = BlockerStatus.ESCALATED
                 blocker.escalated_at = datetime.now(UTC)
 
-        recipients = manager_ids(self.settings)
+        recipients = await self._manager_telegram_ids()
         for blocker in blockers:
             user_name = users.get(blocker.user_id)
             advice = advice_by_blocker.get(blocker.id, "рекомендация не сформирована")

@@ -3,8 +3,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from abm_daily_bot.db.models import OdooOutbox, User
-from abm_daily_bot.services.daily_store import get_or_create_user, queue_daily_odoo_sync
+from abm_daily_bot.db.models import OdooOutbox, User, UserRole
+from abm_daily_bot.services.daily_store import (
+    active_user_bindings,
+    claim_invited_user,
+    get_or_create_user,
+    queue_daily_odoo_sync,
+)
 
 
 @pytest.mark.asyncio
@@ -30,6 +35,39 @@ async def test_existing_odoo_user_is_rebound_to_current_telegram() -> None:
     assert result.display_name == "Current test user"
     session.add.assert_not_called()
     session.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_personal_invite_cannot_take_over_existing_odoo_binding() -> None:
+    existing = User(
+        telegram_user_id=111,
+        odoo_user_id=584,
+        display_name="Already linked",
+    )
+    session = MagicMock()
+    session.scalar = AsyncMock(side_effect=[None, existing])
+
+    with pytest.raises(ValueError, match="уже использована"):
+        await claim_invited_user(
+            session,
+            telegram_user_id=222,
+            odoo_user_id=584,
+            display_name="Another user",
+            role=UserRole.PM,
+        )
+
+    session.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_active_user_bindings_restore_invites_after_restart() -> None:
+    active = User(telegram_user_id=111, odoo_user_id=584, display_name="PM")
+    inactive = User(telegram_user_id=222, odoo_user_id=999, display_name="Former")
+    inactive.is_active = False
+    session = MagicMock()
+    session.scalars = AsyncMock(return_value=[active])
+
+    assert await active_user_bindings(session) == {111: 584}
 
 
 @pytest.mark.asyncio

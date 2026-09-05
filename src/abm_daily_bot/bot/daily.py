@@ -12,7 +12,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 
 from abm_daily_bot.config import get_settings
-from abm_daily_bot.db.models import User
+from abm_daily_bot.db.models import User, UserRole
 from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.domain import OdooTask, TaskContextForAdvice
 from abm_daily_bot.services.ai_advice import AIAdviceService
@@ -24,6 +24,7 @@ from abm_daily_bot.services.blocker_store import (
     upsert_open_blocker,
 )
 from abm_daily_bot.services.daily_store import (
+    claim_invited_user,
     get_or_create_user,
     queue_daily_odoo_sync,
     upsert_daily_answer,
@@ -340,13 +341,40 @@ def demo_advice(task_name: str, blocker_text: str) -> str:
 async def start(message: Message, state: FSMContext) -> None:
     await state.clear()
     settings = get_settings()
-    odoo_user_id = (
-        settings.odoo_user_id_for(message.from_user.id) if message.from_user else 0
-    )
+    payload = (message.text or "").partition(" ")[2].strip()
+    invite = settings.telegram_invite_codes.get(payload) if payload else None
+    if payload and not invite:
+        await message.answer(
+            "Ссылка приглашения недействительна или устарела. Запроси новую у PM."
+        )
+        return
+    if invite and message.from_user:
+        try:
+            odoo_user_id = int(invite["odoo_user_id"])
+            role = UserRole(str(invite.get("role", UserRole.MEMBER.value)))
+            session_factory = build_session_factory(settings.database_url)
+            async with session_scope(session_factory) as session:
+                await claim_invited_user(
+                    session,
+                    telegram_user_id=message.from_user.id,
+                    odoo_user_id=odoo_user_id,
+                    display_name=message.from_user.full_name,
+                    role=role,
+                )
+        except (KeyError, TypeError, ValueError) as exc:
+            await message.answer(f"Не удалось применить приглашение: {escape(str(exc))}")
+            return
+        settings.telegram_odoo_user_map[message.from_user.id] = odoo_user_id
+        await message.answer("Готово: Telegram подключён к твоему профилю Odoo.")
+    else:
+        odoo_user_id = (
+            settings.odoo_user_id_for(message.from_user.id) if message.from_user else 0
+        )
     if (
         not settings.demo_mode
         and odoo_user_id > 0
         and message.from_user
+        and not invite
     ):
         try:
             session_factory = build_session_factory(settings.database_url)
@@ -360,13 +388,20 @@ async def start(message: Message, state: FSMContext) -> None:
         except Exception as exc:  # noqa: BLE001
             await message.answer(f"Не удалось зарегистрировать пользователя: {escape(str(exc))}")
             return
+    if not settings.demo_mode and odoo_user_id <= 0:
+        await message.answer(
+            "Профиль пока не подключён к Odoo. Открой персональную ссылку-приглашение "
+            "от PM, затем вернись в это меню."
+        )
+        return
     test_command = (
         "\n/test_reopen 4 — снова открыть тестовую задачу"
         if settings.app_env == "local"
         else ""
     )
     await message.answer(
-        "Привет! Я собираю статусы по задачам ABM Club.\n\n"
+        "<strong>ABM Club Daily</strong>\n"
+        "Статусы по задачам из Odoo прямо в Telegram.\n\n"
         "Команды:\n"
         "/daily — пройти дейли\n"
         "/weekly — выбрать фокус недели\n"
@@ -686,13 +721,20 @@ async def choose_stage(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(DailyStates.result_url)
         await callback.message.answer("Пришли ссылку на результат или отправь /skip.")
         return
-    await save_answer_and_continue(callback.message, state)
+    await save_answer_and_continue(
+        callback.message,
+        state,
+        telegram_user_id=callback.from_user.id,
+        telegram_full_name=callback.from_user.full_name,
+    )
 
 
 async def save_answer_and_continue(
     message: Message,
     state: FSMContext,
     result_url: str | None = None,
+    telegram_user_id: int | None = None,
+    telegram_full_name: str | None = None,
 ) -> None:
     data = await state.get_data()
     task = data["tasks"][data["task_index"]]
@@ -711,16 +753,22 @@ async def save_answer_and_continue(
             result_url=result_url,
         )
         try:
-            if not message.from_user:
+            actor_id = telegram_user_id or (
+                message.from_user.id if message.from_user else None
+            )
+            actor_name = telegram_full_name or (
+                message.from_user.full_name if message.from_user else None
+            )
+            if actor_id is None or actor_name is None:
                 raise RuntimeError("Telegram user is unavailable")
             answer_date = datetime.now(ZoneInfo(settings.timezone)).date()
             session_factory = build_session_factory(settings.database_url)
             async with session_scope(session_factory) as session:
                 user = await get_or_create_user(
                     session,
-                    telegram_user_id=message.from_user.id,
-                    odoo_user_id=settings.odoo_user_id_for(message.from_user.id),
-                    display_name=message.from_user.full_name,
+                    telegram_user_id=actor_id,
+                    odoo_user_id=settings.odoo_user_id_for(actor_id),
+                    display_name=actor_name,
                 )
                 await upsert_daily_answer(
                     session,

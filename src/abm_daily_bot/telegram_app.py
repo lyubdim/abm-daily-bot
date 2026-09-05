@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
 
 from abm_daily_bot.bot.daily import router
 from abm_daily_bot.bot.management import router as management_router
@@ -14,6 +15,7 @@ from abm_daily_bot.bot.weekly import router as weekly_router
 from abm_daily_bot.config import get_settings
 from abm_daily_bot.db.session import build_session_factory, initialize_database, session_scope
 from abm_daily_bot.jobs import build_scheduler
+from abm_daily_bot.services.daily_store import active_user_bindings
 from abm_daily_bot.services.odoo_client import OdooClient
 from abm_daily_bot.services.outbox import OdooOutboxService
 from abm_daily_bot.services.scheduled_jobs import ScheduledJobs
@@ -40,9 +42,27 @@ async def run_polling() -> None:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is required")
 
     await initialize_database(settings)
+    session_factory = build_session_factory(settings.database_url)
+    async with session_scope(session_factory) as session:
+        persisted_bindings = await active_user_bindings(session)
+    settings.telegram_odoo_user_map = {
+        **persisted_bindings,
+        **settings.telegram_odoo_user_map,
+    }
     bot = Bot(
         token=settings.telegram_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
+    await bot.set_my_commands(
+        [
+            BotCommand(command="daily", description="Пройти дейли по задачам"),
+            BotCommand(command="weekly", description="Выбрать фокус недели"),
+            BotCommand(command="blockers", description="Открытые затруднения"),
+            BotCommand(command="status", description="Статус команды или задачи"),
+            BotCommand(command="deadlines", description="Дедлайны на 7 дней"),
+            BotCommand(command="digest", description="Дайджест для PM"),
+            BotCommand(command="cancel", description="Остановить текущий опрос"),
+        ]
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher.include_router(router)

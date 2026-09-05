@@ -9,7 +9,14 @@ from aiogram.types import Message
 from sqlalchemy import select
 
 from abm_daily_bot.config import Settings, get_settings
-from abm_daily_bot.db.models import AIAdvice, Blocker, DailyAnswer, DailySummary, User
+from abm_daily_bot.db.models import (
+    AIAdvice,
+    Blocker,
+    DailyAnswer,
+    DailySummary,
+    User,
+    UserRole,
+)
 from abm_daily_bot.db.session import build_session_factory, session_scope
 from abm_daily_bot.domain import BlockerStatus
 from abm_daily_bot.services.odoo_client import OdooClient
@@ -55,6 +62,20 @@ def preferred_open_stage(stages: list[dict[str, object]]) -> dict[str, object] |
 async def require_manager(message: Message, settings: Settings) -> bool:
     if message.from_user and message.from_user.id in manager_ids(settings):
         return True
+    if message.from_user:
+        try:
+            session_factory = build_session_factory(settings.database_url)
+            async with session_scope(session_factory) as session:
+                role = await session.scalar(
+                    select(User.role).where(
+                        User.telegram_user_id == message.from_user.id,
+                        User.is_active.is_(True),
+                    )
+                )
+            if role in {UserRole.PM, UserRole.TECH_LEAD}:
+                return True
+        except Exception:
+            logger.exception("Failed to check Telegram manager role")
     await message.answer("Команда доступна только PM и техлиду.")
     return False
 

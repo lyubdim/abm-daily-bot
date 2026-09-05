@@ -27,3 +27,16 @@ def test_project_scope_is_configurable() -> None:
     assert settings.odoo_project_ids == [1329, 1330, 1335, 1336]
     assert settings.odoo_scope_label.startswith("PORTF-008")
 
+
+def test_personal_invite_contains_odoo_user_and_role() -> None:
+    settings = Settings(
+        telegram_invite_codes={
+            "private-code": {"odoo_user_id": 584, "role": "pm"}
+        }
+    )
+
+    assert settings.telegram_invite_codes["private-code"] == {
+        "odoo_user_id": 584,
+        "role": "pm",
+    }
+

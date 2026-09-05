@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from abm_daily_bot.db.models import DailyAnswer, DailySummary, OdooOutbox, User
+from abm_daily_bot.db.models import DailyAnswer, DailySummary, OdooOutbox, User, UserRole
 from abm_daily_bot.domain import DailyAnswerStatus
 from abm_daily_bot.services.outbox import OdooOutboxService
 
@@ -40,6 +40,43 @@ async def get_or_create_user(
     session.add(user)
     await session.flush()
     return user
+
+
+async def claim_invited_user(
+    session: AsyncSession,
+    *,
+    telegram_user_id: int,
+    odoo_user_id: int,
+    display_name: str,
+    role: UserRole,
+) -> User:
+    telegram_user = await session.scalar(
+        select(User).where(User.telegram_user_id == telegram_user_id)
+    )
+    odoo_user = await session.scalar(select(User).where(User.odoo_user_id == odoo_user_id))
+    if telegram_user and telegram_user.odoo_user_id != odoo_user_id:
+        raise ValueError("Telegram-профиль уже связан с другим пользователем Odoo")
+    if odoo_user and odoo_user.telegram_user_id != telegram_user_id:
+        raise ValueError("Эта персональная ссылка уже использована")
+
+    user = telegram_user or odoo_user
+    if not user:
+        user = User(
+            telegram_user_id=telegram_user_id,
+            odoo_user_id=odoo_user_id,
+            display_name=display_name,
+        )
+        session.add(user)
+    user.display_name = display_name
+    user.role = role
+    user.is_active = True
+    await session.flush()
+    return user
+
+
+async def active_user_bindings(session: AsyncSession) -> dict[int, int]:
+    users = await session.scalars(select(User).where(User.is_active.is_(True)))
+    return {user.telegram_user_id: user.odoo_user_id for user in users}
 
 
 async def upsert_daily_answer(

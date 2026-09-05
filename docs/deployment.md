@@ -128,6 +128,7 @@ TECH_LEAD_TELEGRAM_IDS=987654321
 
 ```dotenv
 TELEGRAM_ODOO_USER_MAP={"123456789":94,"987654321":105}
+TELEGRAM_INVITE_CODES={"private-random-code":{"odoo_user_id":105,"role":"pm"}}
 ODOO_DEFAULT_USER_ID=0
 ODOO_PROJECT_IDS=[1329,1330,1335,1336]
 ODOO_SCOPE_LABEL=PORTF-008 · Управление клубами
@@ -136,6 +137,11 @@ ODOO_SCOPE_LABEL=PORTF-008 · Управление клубами
 Ключ слева - неизменяемый числовой Telegram ID, значение справа - ID записи
 `res.users` в Odoo. Нулевой default предотвращает случайную работу от имени другого
 участника, если его забыли добавить в карту.
+
+`TELEGRAM_INVITE_CODES` используется для самостоятельного первого входа. Код должен
+быть случайным, передаваться адресно и храниться только в `production.env`. После
+перехода по `https://t.me/abm_club_daily_bot?start=<code>` привязка и роль сохраняются
+в PostgreSQL; другой Telegram-аккаунт не сможет занять тот же Odoo-профиль.
 
 `ODOO_PROJECT_IDS` ограничивает все рабочие выборки проектами связанного портфеля.
 Перед изменением состава портфеля список нужно сверить с Odoo и обновить в окружении.
