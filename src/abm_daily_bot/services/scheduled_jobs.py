@@ -40,11 +40,20 @@ class ScheduledJobs:
             rows = await session.scalars(select(User).where(User.is_active.is_(True)))
             return list(rows)
 
-    async def _send_to_users(self, text: str, users: list[User]) -> int:
+    async def _send_to_users(
+        self,
+        text: str,
+        users: list[User],
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> int:
         sent = 0
         for user in users:
             try:
-                await self.bot.send_message(user.telegram_user_id, text)
+                await self.bot.send_message(
+                    user.telegram_user_id,
+                    text,
+                    reply_markup=reply_markup,
+                )
                 sent += 1
             except Exception:
                 logger.exception("Scheduled Telegram message failed for user %s", user.id)
@@ -95,7 +104,9 @@ class ScheduledJobs:
             )
         missing = [user for user in users if user.id not in answered]
         await self._send_to_users(
-            "Напоминание: сегодня ещё нет ответа по дейли. Отправь /daily.", missing
+            "Напоминание: сегодня ещё нет ответа по дейли.",
+            missing,
+            reply_markup=scheduled_action_keyboard("daily", "Ответить на дейли"),
         )
 
     async def pm_digest(self) -> None:

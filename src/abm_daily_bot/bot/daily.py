@@ -302,6 +302,23 @@ def progress_keyboard(task_url: str | None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def start_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Начать дейли",
+                    callback_data="scheduled:daily",
+                ),
+                InlineKeyboardButton(
+                    text="Фокус недели",
+                    callback_data="scheduled:weekly",
+                ),
+            ]
+        ]
+    )
+
+
 async def ask_current_task(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     task_index = data.get("task_index", 0)
@@ -429,7 +446,8 @@ async def start(message: Message, state: FSMContext) -> None:
         "/blockers — открытые затруднения\n"
         "/whoami — проверить связь с Odoo\n"
         "/cancel — остановить текущий опрос"
-        f"{test_command}"
+        f"{test_command}",
+        reply_markup=start_keyboard(),
     )
 
 
@@ -874,6 +892,15 @@ async def choose_stage(callback: CallbackQuery, state: FSMContext) -> None:
         selected_state=task_state,
     )
     if stage_is_done(selected_stage):
+        saved = await save_answer_and_continue(
+            callback.message,
+            state,
+            telegram_user_id=callback.from_user.id,
+            telegram_full_name=callback.from_user.full_name,
+            advance=False,
+        )
+        if not saved:
+            return
         await state.set_state(DailyStates.result_url)
         await callback.message.answer("Пришли ссылку на результат или отправь /skip.")
         return
@@ -891,7 +918,8 @@ async def save_answer_and_continue(
     result_url: str | None = None,
     telegram_user_id: int | None = None,
     telegram_full_name: str | None = None,
-) -> None:
+    advance: bool = True,
+) -> bool:
     data = await state.get_data()
     task = data["tasks"][data["task_index"]]
     task_state = data["selected_state"]
@@ -952,7 +980,14 @@ async def save_answer_and_continue(
                 f"текущем опросе, попробуй ещё раз. Ошибка: {escape(str(exc))}"
             )
             await state.set_state(DailyStates.status)
-            return
+            return False
+
+    if not advance:
+        await message.answer(
+            "Этап «Готово» уже сохранён в Odoo или поставлен в очередь. "
+            "Теперь можно добавить ссылку на результат."
+        )
+        return True
 
     answers: list[dict[str, Any]] = list(data.get("answers", []))
     answers.append(
@@ -981,6 +1016,7 @@ async def save_answer_and_continue(
             "Ответ сохранён. Запись в Odoo выполнена или поставлена в очередь повтора."
         )
     await move_to_next_task(message, state)
+    return True
 
 
 @router.message(DailyStates.result_url, F.text)

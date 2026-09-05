@@ -8,6 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy import func, select
 
+from abm_daily_bot.bot.keyboards import scheduled_action_keyboard
 from abm_daily_bot.config import Settings, get_settings
 from abm_daily_bot.db.models import (
     AIAdvice,
@@ -566,7 +567,8 @@ async def remind_non_responders(message: Message) -> None:
         try:
             await message.bot.send_message(
                 user.telegram_user_id,
-                "Напоминание: сегодня ещё нет ответа по дейли. Отправь /daily.",
+                "Напоминание: сегодня ещё нет ответа по дейли.",
+                reply_markup=scheduled_action_keyboard("daily", "Ответить на дейли"),
             )
             sent += 1
         except Exception:
